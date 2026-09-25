@@ -1,5 +1,5 @@
 """Dashboard gratis: baca halaman publik Trading Economics jika tersedia."""
-from datetime import datetime
+from datetime import datetime, timedelta
 from io import BytesIO
 from html import escape
 import re
@@ -29,6 +29,36 @@ LABELS = {"Nikel": "nickel", "Brent Oil": "brent", "Coal": "coal", "Natural Gas"
 HEADERS = {"User-Agent": "Mozilla/5.0 (compatible; personal commodity report)"}
 COLS = ["Komoditas", "Latest Price", "Unit", "Day %", "Month %", "Year %",
         "Low 1Y", "High 1Y", "Reason", "Link berita", "Waktu sumber", "Status"]
+TODAY = datetime.now(ZoneInfo("Asia/Jakarta")).date()
+
+
+def quote_date(raw):
+    """Tanggal kutipan; format TE pada tabel biasanya Sep/25."""
+    text = str(raw or "").strip()
+    if not text or "%" in text:
+        return None
+    for pattern in ("%Y-%m-%d", "%b/%d/%Y", "%b %d, %Y", "%B %d, %Y"):
+        try:
+            return datetime.strptime(text, pattern).date()
+        except ValueError:
+            pass
+    try:
+        month_day = datetime.strptime(text, "%b/%d").date()
+        parsed = month_day.replace(year=TODAY.year)
+        return parsed if parsed <= TODAY + timedelta(days=1) else parsed.replace(year=TODAY.year-1)
+    except ValueError:
+        return None
+
+
+def trading_days_old(when):
+    if when is None or when > TODAY:
+        return None
+    return sum((when + timedelta(days=i)).weekday() < 5 for i in range(1, (TODAY-when).days+1))
+
+
+def is_fresh(raw):
+    age = trading_days_old(quote_date(raw))
+    return age is not None and age <= 1
 
 
 def fetch_html(url):
@@ -78,14 +108,17 @@ def collect_public():
                 row["Day %"] = clean_num(day)
                 row["Month %"] = clean_num(month)
                 row["Year %"] = clean_num(year) if "%" in year else ""
-                row["Waktu sumber"] = date if date and "%" not in date else ""
+                parsed = quote_date(date)
+                row["Waktu sumber"] = parsed.isoformat() if parsed else ""
                 # Hilangkan nama instrumen; pertahankan satuan sebagaimana tampak di halaman.
                 first = cells[0].get_text(" ", strip=True)
                 row["Unit"] = first.replace(anchor.get_text(" ", strip=True), "", 1).strip()
-                row["Status"] = "Harga dari halaman publik"
+                row["Status"] = "Tanggal terverifikasi" if is_fresh(row["Waktu sumber"]) else "Tanggal usang/tidak terbaca"
         data[label] = row
 
     for label, path in NAMES.items():
+        if data[label]["Year %"] or not data[label]["Latest Price"] or not data[label]["Waktu sumber"]:
+            continue
         try:
             detail = fetch_html(URL + path)
             text = detail.get_text(" ", strip=True)
@@ -95,7 +128,11 @@ def collect_public():
                 continue
             excerpt = text[max(0, start.start()-260):start.start()+300]
             yearly = re.search(r"(\d+(?:\.\d+)?)%\s+(higher|lower|up|down)\s+than a year ago", excerpt, re.I)
-            if yearly:
+            # Jangan gabungkan persentase detail dengan kutipan daftar yang berlainan waktu/harga.
+            quote = re.search(r"(?:rose|fell|climbed|dropped|increased|decreased)\s+to\s+([\d,.]+)\s+\S+\s+on\s+([A-Za-z]+\s+\d+,\s+\d{4})", excerpt, re.I)
+            matching = bool(quote and quote_date(quote.group(2)) == quote_date(data[label]["Waktu sumber"])
+                            and abs(float(quote.group(1).replace(",", "")) - float(data[label]["Latest Price"])) <= max(0.01, float(data[label]["Latest Price"]) * 0.0001))
+            if yearly and matching:
                 data[label]["Year %"] = ("-" if yearly.group(2).lower() in ("lower", "down") else "") + yearly.group(1)
         except (requests.RequestException, ValueError):
             # Angka dari halaman daftar tetap ditampilkan bila halaman detail gagal.
@@ -136,7 +173,7 @@ def preview(frame, period, lalang, pendalian):
         reason = escape(str(row["Reason"] or "—"))
         lines.append(
             f'<tr><td class="name"><a href="{link}" target="_blank">{name}</a></td>'
-            f'<td class="price">{fmt(row["Latest Price"])}<small>{escape(str(row["Unit"] or ""))}</small></td>'
+            f'<td class="price">{fmt(row["Latest Price"])}<small>{escape(str(row["Unit"] or ""))} · {escape(str(row["Waktu sumber"] or "tanggal belum ada"))}</small></td>'
             f'<td>{change(row["Day %"])}</td><td>{change(row["Month %"])}</td><td>{change(row["Year %"])}</td>'
             f'<td class="reason">{reason}</td><td class="range">{bar(row)}</td></tr>'
         )
@@ -181,7 +218,7 @@ def png(frame, icp_period, lalang, pendalian):
                 ha=align,va="center",family="DejaVu Sans")
     rect(30,800,1740,58,"#3977c9")
     txt(900,837,"Perubahan Harga Komoditas",19,True,"white","center")
-    txt(900,810,"Source: tradingeconomics.com",9,False,"white","center")
+    txt(900,810,f"Source: tradingeconomics.com · dibuat {datetime.now(ZoneInfo('Asia/Jakarta')):%d/%m/%Y %H:%M} WIB",9,False,"white","center")
     rect(30,735,1740,65,"#699ce4")
     for j,title in enumerate(["Komoditas","Latest Price","Day","Month","Year","Reason","Low–High (1 Year)"]):
         if j == 5: x0,x1=edges[5],edges[6]
@@ -196,6 +233,7 @@ def png(frame, icp_period, lalang, pendalian):
         txt(42,bottom+74,row["Komoditas"],16,True)
         txt(387,bottom+78,fmt(row["Latest Price"]),17,True,align="center")
         txt(387,bottom+49,row["Unit"] or "",10,align="center")
+        txt(387,bottom+27,row["Waktu sumber"] or "tanggal belum ada",8,align="center")
         for j,key in enumerate(["Day %","Month %","Year %"]):
             try: color="#a51d1d" if float(row[key])<0 else "#276c2a"
             except (TypeError,ValueError): color="#333333"
@@ -246,20 +284,20 @@ if st.button("🔄 Ambil dari halaman publik"):
                 new.at[i, column] = old.at[label, column]
             # Jangan tampilkan harga lama seolah hasil pembacaan baru.
         st.session_state.frame = new
-        st.success("Pembacaan selesai. Periksa kolom Status dan angka sebelum mengunduh.")
+        st.success("Pembacaan selesai. Periksa tanggal sumber dan angka sebelum mengunduh.")
     except (requests.RequestException, ValueError) as exc:
         st.warning(f"Halaman publik tidak dapat dibaca sekarang: {exc}. Isi tabel secara manual.")
 
 with st.expander("✏️ Edit angka, rentang 1 tahun, alasan dan tautan berita"):
     edited = st.data_editor(
         st.session_state.frame, hide_index=True, use_container_width=True,
-        disabled=["Komoditas", "Waktu sumber", "Status"],
+        disabled=["Komoditas", "Status"],
         column_config={"Reason": st.column_config.TextColumn("Reason", width="large"),
                        "Link berita": st.column_config.LinkColumn("Link berita")},
         key="editor",
     )
     st.session_state.frame = edited
-    st.caption("Angka yang tidak terbaca dibiarkan kosong. Buka tautan nama komoditas pada tabel laporan untuk mencocokkan sumber.")
+    st.caption("Angka yang tidak terbaca dibiarkan kosong. Jika memperbarui harga manual, isi Waktu sumber dengan YYYY-MM-DD sesuai halaman Trading Economics.")
 
 with st.expander("✏️ Isi ICP bulanan"):
     icp_period = st.text_input("Periode", value="")
@@ -273,5 +311,13 @@ with st.expander("Sumber dan status pembacaan"):
     st.dataframe(edited[["Komoditas", "Waktu sumber", "Status", "Link berita"]], hide_index=True, use_container_width=True)
 
 timestamp = datetime.now(ZoneInfo("Asia/Jakarta")).strftime("%Y%m%d")
-st.download_button("⬇️ Unduh PNG", png(edited, icp_period, lalang, pendalian), f"komoditas_{timestamp}.png", "image/png")
+invalid = [str(row["Komoditas"]) for _,row in edited.iterrows()
+           if not row["Latest Price"] or not is_fresh(row["Waktu sumber"])]
+if invalid:
+    st.warning("Harga kosong atau lebih dari satu hari perdagangan sejak tanggal sumber: " + ", ".join(invalid))
+    manual_verified = st.checkbox("Saya sudah mencocokkan ulang harga dan tanggal ke halaman sumber untuk baris tersebut")
+else:
+    manual_verified = True
+st.download_button("⬇️ Unduh PNG", png(edited, icp_period, lalang, pendalian) if manual_verified else b"",
+                   f"komoditas_{timestamp}.png", "image/png", disabled=not manual_verified)
 st.download_button("⬇️ Unduh CSV", edited.to_csv(index=False).encode("utf-8-sig"), f"komoditas_{timestamp}.csv", "text/csv")

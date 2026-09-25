@@ -7,3 +7,7 @@ Klik **Ambil dari halaman publik**. Program membaca tabel komoditas publik Tradi
 Tabel utama dan hasil **Unduh PNG** mengikuti format contoh: empat komoditas, perubahan Day/Month/Year, Reason, indikator Low–High 1 Year, dan ICP. Klik bagian **Edit angka, rentang 1 tahun, alasan dan tautan berita** untuk mengubah nilainya. Apabila kolom pada halaman sumber berubah, aplikasi membiarkan data yang tidak dapat dikenali kosong supaya tidak salah melabeli persentase sebagai tanggal.
 
 Ini bukan API Trading Economics. Program mengirim paling banyak lima permintaan halaman saat tombol ditekan; tanpa penjadwalan otomatis, tanpa bypass proteksi akses. Jika situs tidak lagi membolehkan pembacaan, gunakan versi lokal `Dashboard_Komoditas_Tanpa_API.zip`.
+
+## Ketepatan waktu harga
+
+Tekan **Ambil dari halaman publik** setiap kali membuat laporan. Tanggal sumber ditampilkan per komoditas pada tabel dan PNG. Jika tanggal tidak dapat dibaca atau sudah lebih dari satu hari perdagangan, unduhan PNG dinonaktifkan sampai pengguna memeriksa harga dan tanggal pada halaman sumber serta mencentang konfirmasi. Tanggal yang diedit manual memakai format `YYYY-MM-DD`. Waktu pembuatan PNG bukan waktu pembaruan harga. Harga dari halaman publik dapat tertunda atau berbeda pada saat pembacaan karena pasar dan halaman sumber terus bergerak.
