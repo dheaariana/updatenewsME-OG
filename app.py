@@ -1,7 +1,7 @@
-"""Dashboard harian komoditas dari Trading Economics API."""
-
-from datetime import datetime, timedelta
+"""Dashboard gratis: baca halaman publik Trading Economics jika tersedia."""
+from datetime import datetime
 from io import BytesIO
+import re
 from textwrap import fill
 from zoneinfo import ZoneInfo
 
@@ -10,210 +10,186 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import pandas as pd
 import requests
+from bs4 import BeautifulSoup
 import streamlit as st
 
-
-TZ = ZoneInfo("Asia/Jakarta")
-API = "https://api.tradingeconomics.com"
-# Cocokkan berdasarkan URL halaman, bukan urutan respons API.
-COMMODITIES = {
-    "Nikel": ("nickel", "/commodity/nickel"),
-    "Brent Oil": ("brent", "/commodity/brent-crude-oil"),
-    "Coal": ("coal", "/commodity/coal"),
-    "Natural Gas": ("natural-gas", "/commodity/natural-gas"),
-}
-
-st.set_page_config(page_title="Perubahan Harga Komoditas", layout="wide")
+st.set_page_config(page_title="Update Komoditas", layout="wide")
 st.title("Perubahan Harga Komoditas")
-st.caption("Sumber harga: Trading Economics · Zona waktu tampilan: WIB")
+st.caption("Sumber: halaman publik Trading Economics · Tidak menggunakan API key")
 
-try:
-    api_key = st.secrets["TRADING_ECONOMICS_API_KEY"]
-except (KeyError, FileNotFoundError):
-    st.error("Tambahkan TRADING_ECONOMICS_API_KEY ke Streamlit Secrets.")
-    st.stop()
+URL = "https://tradingeconomics.com"
+NAMES = {
+    "Nikel": "/commodity/nickel",
+    "Brent Oil": "/commodity/brent-crude-oil",
+    "Coal": "/commodity/coal",
+    "Natural Gas": "/commodity/natural-gas",
+}
+LABELS = {"Nikel": "nickel", "Brent Oil": "brent", "Coal": "coal", "Natural Gas": "natural gas"}
+HEADERS = {"User-Agent": "Mozilla/5.0 (compatible; personal commodity report)"}
+COLS = ["Komoditas", "Latest Price", "Unit", "Day %", "Month %", "Year %",
+        "Low 1Y", "High 1Y", "Reason", "Link berita", "Waktu sumber", "Status"]
 
 
-def fetch(path, params=None):
-    response = requests.get(
-        API + path,
-        params=params,
-        headers={"Authorization": api_key},
-        timeout=30,
-    )
+def fetch_html(url):
+    response = requests.get(url, headers=HEADERS, timeout=15)
     response.raise_for_status()
-    data = response.json()
-    if not isinstance(data, list):
-        raise ValueError(f"Respons API tidak berupa daftar: {str(data)[:180]}")
-    return data
+    if "captcha" in response.url.lower():
+        raise ValueError("Halaman meminta verifikasi browser")
+    return BeautifulSoup(response.text, "html.parser")
 
 
-@st.cache_data(ttl=3600)
-def quotes():
-    return fetch("/markets/commodities")
+def clean_num(text):
+    match = re.search(r"[-+]?\d[\d,.]*", str(text))
+    return match.group(0).replace(",", "") if match else ""
 
 
-@st.cache_data(ttl=3600)
-def yearly_range(symbol):
-    end = datetime.now(TZ).date()
-    start = end - timedelta(days=365)
-    history = fetch(
-        f"/markets/historical/{symbol}",
-        {"d1": start.isoformat(), "d2": end.isoformat()},
-    )
-    lows = pd.to_numeric(
-        pd.Series([row.get("Low") for row in history], dtype="object"),
-        errors="coerce",
-    ).dropna()
-    highs = pd.to_numeric(
-        pd.Series([row.get("High") for row in history], dtype="object"),
-        errors="coerce",
-    ).dropna()
-    if lows.empty or highs.empty:
-        return None, None
-    return float(lows.min()), float(highs.max())
+def signed_percent(phrase):
+    """Persentase narasi berubah menjadi angka bertanda; ambigu => kosong."""
+    value = re.search(r"(\d+(?:\.\d+)?)%", phrase)
+    if not value:
+        return ""
+    before = phrase[:value.start()].lower()
+    if re.search(r"\b(fell|fallen|down|dropped|declined|lower|lost|decreased)\b", before):
+        return "-" + value.group(1)
+    if re.search(r"\b(rose|risen|up|higher|gained|increased|climbed)\b", before):
+        return value.group(1)
+    return ""
 
 
-def fmt(value):
+def collect_public():
+    """Permintaan rendah: satu halaman daftar dan satu halaman per komoditas."""
+    soup = fetch_html(URL + "/commodities")
+    data = {}
+    for label, path in NAMES.items():
+        row = {
+            "Komoditas": label, "Latest Price": "", "Unit": "",
+            "Day %": "", "Month %": "", "Year %": "", "Low 1Y": "",
+            "High 1Y": "", "Reason": "", "Link berita": "",
+            "Waktu sumber": "", "Status": "Belum ditemukan",
+        }
+        anchor = soup.find("a", href=lambda h: bool(h and h.lower().rstrip("/") == path))
+        tr = anchor.find_parent("tr") if anchor else None
+        if tr:
+            cells = tr.find_all("td", recursive=False)
+            # Kolom halaman /commodities: Nama+unit | Price | Chg | %Chg | Monthly | Date.
+            if len(cells) >= 6:
+                row["Latest Price"] = clean_num(cells[1].get_text(" ", strip=True))
+                row["Day %"] = clean_num(cells[3].get_text(" ", strip=True))
+                row["Month %"] = clean_num(cells[4].get_text(" ", strip=True))
+                row["Waktu sumber"] = cells[5].get_text(" ", strip=True)
+                # Hilangkan nama instrumen; pertahankan satuan sebagaimana tampak di halaman.
+                first = cells[0].get_text(" ", strip=True)
+                row["Unit"] = first.replace(anchor.get_text(" ", strip=True), "", 1).strip()
+                row["Status"] = "Harga dari halaman publik"
+        data[label] = row
+
+    for label, path in NAMES.items():
+        try:
+            detail = fetch_html(URL + path)
+            text = detail.get_text(" ", strip=True)
+            # Batasi pencarian pada ringkasan awal yang memuat 'Over the past month'.
+            start = re.search(r"Over the past month", text, re.I)
+            if not start:
+                continue
+            excerpt = text[max(0, start.start()-260):start.start()+300]
+            yearly = re.search(r"(?:higher|lower|up|down) than a year ago", excerpt, re.I)
+            if yearly:
+                window = excerpt[max(0, yearly.start()-35):yearly.end()]
+                amount = re.search(r"(\d+(?:\.\d+)?)%", window)
+                if amount:
+                    data[label]["Year %"] = ("-" if "lower" in yearly.group(0).lower() or "down" in yearly.group(0).lower() else "") + amount.group(1)
+        except (requests.RequestException, ValueError):
+            # Angka dari halaman daftar tetap ditampilkan bila halaman detail gagal.
+            pass
+    return pd.DataFrame(data.values(), columns=COLS)
+
+
+def fmt(value, signed=False):
     try:
-        return f"{float(value):,.2f}"
+        number = float(str(value).replace(",", ""))
+        return f"{number:+.2f}%" if signed else f"{number:,.2f}"
     except (TypeError, ValueError):
         return "—"
 
 
-def pct(value):
-    try:
-        return f"{float(value):+.2f}%"
-    except (TypeError, ValueError):
-        return "—"
-
-
-def as_png(frame, timestamp):
-    headers = ["Komoditas", "Latest Price", "Day", "Month", "Year",
-               "Low 1Y", "High 1Y", "Reason"]
-    values = []
+def png(frame, icp_period, lalang, pendalian):
+    display = []
     for _, row in frame.iterrows():
-        reason = str(row["Reason"] or "—")
-        values.append([str(row[c]) for c in headers[:-1]] + [fill(reason, 48)])
-
-    fig, ax = plt.subplots(figsize=(18, 2.4 + len(values) * 1.15), dpi=160)
+        reason = fill(str(row["Reason"] or "—"), 50)
+        display.append([
+            row["Komoditas"], f"{fmt(row['Latest Price'])} {row['Unit']}",
+            fmt(row["Day %"], True), fmt(row["Month %"], True),
+            fmt(row["Year %"], True),
+            f"{fmt(row['Low 1Y'])} – {fmt(row['High 1Y'])}", reason,
+        ])
+    fig, ax = plt.subplots(figsize=(19, 7.8), dpi=160)
     ax.axis("off")
-    ax.set_title("Perubahan Harga Komoditas", fontsize=18, weight="bold", pad=28)
+    ax.set_title("Perubahan Harga Komoditas", weight="bold", fontsize=18, pad=22)
     table = ax.table(
-        cellText=values,
-        colLabels=headers,
-        cellLoc="left",
-        loc="center",
-        colWidths=[.105, .115, .065, .075, .075, .085, .085, .395],
+        cellText=display,
+        colLabels=["Komoditas", "Latest Price", "Day", "Month", "Year", "Low–High (1 Year)", "Reason"],
+        cellLoc="left", loc="upper center",
+        colWidths=[.10, .14, .065, .075, .075, .15, .395],
     )
     table.auto_set_font_size(False)
     table.set_fontsize(9)
-    table.scale(1, 4)
-    for (r, _), cell in table.get_celld().items():
-        cell.set_edgecolor("#263443")
-        cell.set_facecolor("#3b76c8" if r == 0 else "#fffaf6")
-        if r == 0:
-            cell.set_text_props(weight="bold", color="white")
-    fig.text(.02, .04, f"Dibuat: {timestamp} WIB | Sumber harga: Trading Economics",
-             fontsize=9)
-    buffer = BytesIO()
-    fig.savefig(buffer, format="png", bbox_inches="tight", pad_inches=.25)
+    table.scale(1, 4.3)
+    for (i, _), cell in table.get_celld().items():
+        cell.set_edgecolor("#273447")
+        cell.set_facecolor("#3979cb" if i == 0 else "#fffaf6")
+        if i == 0:
+            cell.set_text_props(color="white", weight="bold")
+    fig.text(.07, .13, f"Indonesian Crude Price ({icp_period or 'periode belum diisi'})", fontsize=14, weight="bold")
+    fig.text(.07, .09, f"Lalang: {fmt(lalang)} USD/bbl    Pendalian: {fmt(pendalian)} USD/bbl", fontsize=12)
+    fig.text(.07, .04, "Sumber harga: Trading Economics | ICP: Kementerian ESDM | Periksa waktu data dan berita", fontsize=9)
+    out = BytesIO()
+    fig.savefig(out, format="png", bbox_inches="tight")
     plt.close(fig)
-    return buffer.getvalue()
+    return out.getvalue()
 
 
-if st.button("🔄 Ambil data terbaru"):
-    quotes.clear()
-    yearly_range.clear()
+if "frame" not in st.session_state:
+    st.session_state.frame = pd.DataFrame([{
+        "Komoditas": name, "Latest Price": "", "Unit": "", "Day %": "", "Month %": "", "Year %": "",
+        "Low 1Y": "", "High 1Y": "", "Reason": "", "Link berita": "", "Waktu sumber": "", "Status": "Belum diambil"
+    } for name in NAMES], columns=COLS)
 
-try:
-    snapshot = quotes()
-except (requests.RequestException, ValueError) as exc:
-    st.error(f"Data harga belum dapat diambil: {exc}")
-    st.stop()
-
-rows = []
-for name, (slug, page) in COMMODITIES.items():
-    item = next(
-        (q for q in snapshot if str(q.get("URL", "")).lower().rstrip("/") == page),
-        None,
-    )
-    if item is None:
-        # Beberapa respons TE memakai URL Brent dengan slug sedikit berbeda.
-        item = next(
-            (q for q in snapshot if slug in str(q.get("URL", "")).lower()
-             and (name != "Coal" or str(q.get("Name", "")).lower() == "coal")),
-            None,
-        )
-    if item is None:
-        st.warning(f"{name} tidak ditemukan. Periksa URL instrumen pada respons API.")
-        continue
-
+if st.button("🔄 Ambil dari halaman publik"):
+    old = st.session_state.frame.set_index("Komoditas")
     try:
-        low, high = yearly_range(item["Symbol"])
-    except (requests.RequestException, ValueError):
-        low, high = None, None
-        st.warning(f"Rentang 1 tahun {name} belum tersedia pada akses API ini.")
+        new = collect_public()
+        for i, record in new.iterrows():
+            label = record["Komoditas"]
+            for column in ["Low 1Y", "High 1Y", "Reason", "Link berita"]:
+                new.at[i, column] = old.at[label, column]
+            for column in ["Latest Price", "Unit", "Day %", "Month %", "Year %", "Waktu sumber"]:
+                if not record[column]:
+                    new.at[i, column] = old.at[label, column]
+        st.session_state.frame = new
+        st.success("Pembacaan selesai. Periksa kolom Status dan angka sebelum mengunduh.")
+    except (requests.RequestException, ValueError) as exc:
+        st.warning(f"Halaman publik tidak dapat dibaca sekarang: {exc}. Isi tabel secara manual.")
 
-    source_url = "https://tradingeconomics.com" + str(item.get("URL") or page)
-    rows.append({
-        "Komoditas": name,
-        "Latest Price": f"{fmt(item.get('Last'))} {item.get('unit') or ''}",
-        "Day": pct(item.get("DailyPercentualChange")),
-        "Month": pct(item.get("MonthlyPercentualChange")),
-        "Year": pct(item.get("YearlyPercentualChange")),
-        "Low 1Y": fmt(low),
-        "High 1Y": fmt(high),
-        "Reason": st.session_state.get(f"reason_{name}", ""),
-        "Link berita": st.session_state.get(f"news_{name}", ""),
-        "Waktu data TE": str(item.get("LastUpdate") or item.get("Date") or ""),
-        "Sumber harga": source_url,
-    })
+st.markdown("[Buka daftar komoditas Trading Economics](https://tradingeconomics.com/commodities)")
+for name, path in NAMES.items():
+    st.markdown(f"[{name}]({URL + path})", unsafe_allow_html=False)
 
-if not rows:
-    st.error("Keempat komoditas tidak ditemukan pada respons API.")
-    st.stop()
-
-st.info("Reason dan link berita diisi setelah verifikasi. Keduanya tidak dihasilkan dari perubahan harga semata.")
-frame = pd.DataFrame(rows)
 edited = st.data_editor(
-    frame,
-    hide_index=True,
-    use_container_width=True,
-    disabled=[c for c in frame.columns if c not in ("Reason", "Link berita")],
-    column_config={
-        "Reason": st.column_config.TextColumn("Reason", width="large"),
-        "Link berita": st.column_config.LinkColumn("Link berita", width="medium"),
-        "Sumber harga": st.column_config.LinkColumn("Sumber harga"),
-    },
+    st.session_state.frame, hide_index=True, use_container_width=True,
+    disabled=["Komoditas", "Waktu sumber", "Status"],
+    column_config={"Reason": st.column_config.TextColumn("Reason", width="large"),
+                   "Link berita": st.column_config.LinkColumn("Link berita")},
+    key="editor",
 )
-for _, row in edited.iterrows():
-    st.session_state[f"reason_{row['Komoditas']}"] = row["Reason"]
-    st.session_state[f"news_{row['Komoditas']}"] = row["Link berita"]
+st.session_state.frame = edited
+st.caption("Kolom Low–High 1Y, Reason, dan link berita dilengkapi setelah mengecek sumber. Jangan gunakan data bertanda 'Belum ditemukan' tanpa pemeriksaan.")
 
-timestamp = datetime.now(TZ).strftime("%d/%m/%Y %H:%M")
-st.caption("Lihat kolom 'Waktu data TE': waktu pembaruan tiap komoditas dapat berbeda.")
-col1, col2 = st.columns(2)
-with col1:
-    st.download_button(
-        "⬇️ Unduh PNG",
-        data=as_png(edited, timestamp),
-        file_name=f"komoditas_{datetime.now(TZ):%Y%m%d}.png",
-        mime="image/png",
-    )
-with col2:
-    st.download_button(
-        "⬇️ Unduh CSV",
-        data=edited.to_csv(index=False).encode("utf-8-sig"),
-        file_name=f"komoditas_{datetime.now(TZ):%Y%m%d}.csv",
-        mime="text/csv",
-    )
+st.subheader("ICP bulanan")
+icp_period = st.text_input("Periode", value="")
+c1, c2 = st.columns(2)
+lalang = c1.number_input("Lalang (USD/bbl)", min_value=0.0, step=.01, value=None)
+pendalian = c2.number_input("Pendalian (USD/bbl)", min_value=0.0, step=.01, value=None)
 
-st.divider()
-st.subheader("Indonesian Crude Price (ICP)")
-st.caption("ICP Lal ang dan Pendalian diterbitkan bulanan; masukkan angka dari publikasi Kementerian ESDM setelah terbit.")
-with st.expander("Catatan ICP bulanan"):
-    st.text_input("Periode ICP", placeholder="Contoh: Agustus 2026")
-    st.number_input("Lalang (USD/bbl)", min_value=0.0, step=0.01)
-    st.number_input("Pendalian (USD/bbl)", min_value=0.0, step=0.01)
-    st.text_input("Tautan publikasi ESDM")
+timestamp = datetime.now(ZoneInfo("Asia/Jakarta")).strftime("%Y%m%d")
+st.download_button("⬇️ Unduh PNG", png(edited, icp_period, lalang, pendalian), f"komoditas_{timestamp}.png", "image/png")
+st.download_button("⬇️ Unduh CSV", edited.to_csv(index=False).encode("utf-8-sig"), f"komoditas_{timestamp}.csv", "text/csv")
