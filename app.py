@@ -345,8 +345,8 @@ def preview(frame, period, lalang, pendalian, lalang_note, pendalian_note):
 
 def png(frame, icp_period, lalang, pendalian, lalang_note, pendalian_note):
     from matplotlib.patches import Rectangle
-    fig, ax = plt.subplots(figsize=(18, 9), dpi=150)
-    ax.set_xlim(0, 1800); ax.set_ylim(0, 900); ax.axis("off")
+    fig, ax = plt.subplots(figsize=(18, 11), dpi=150)
+    ax.set_xlim(0, 1800); ax.set_ylim(0, 1100); ax.axis("off")
     fig.patch.set_facecolor("white")
     edges = [30, 270, 505, 585, 665, 745, 1190, 1770]
     def rect(x, y, w, h, color):
@@ -354,41 +354,49 @@ def png(frame, icp_period, lalang, pendalian, lalang_note, pendalian_note):
     def txt(x,y,s,size=14,bold=False,color="#181818",align="left"):
         ax.text(x,y,str(s),fontsize=size,fontweight="bold" if bold else "normal",color=color,
                 ha=align,va="center",family="DejaVu Sans")
-    rect(30,800,1740,58,"#3977c9")
-    txt(900,837,"Changes in Commodity Prices",19,True,"white","center")
-    txt(900,810,f"Source: tradingeconomics.com · laporan dibuat {datetime.now(ZoneInfo('Asia/Jakarta')):%d/%m/%Y %H:%M} GMT+7",9,False,"white","center")
-    rect(30,735,1740,65,"#699ce4")
+    rect(30,1000,1740,58,"#3977c9")
+    txt(900,1037,"Changes in Commodity Prices",19,True,"white","center")
+    txt(900,1010,f"Source: tradingeconomics.com · laporan dibuat {datetime.now(ZoneInfo('Asia/Jakarta')):%d/%m/%Y %H:%M} GMT+7",9,False,"white","center")
+    rect(30,935,1740,65,"#699ce4")
     for j,title in enumerate(["Komoditas","Latest Price","Day","Month","Year","Reason","Low–High (12 bulan)"]):
         if j == 5: x0,x1=edges[5],edges[6]
         elif j == 6: x0,x1=edges[6],edges[7]
         else: x0,x1=edges[j],edges[j+1]
-        txt((x0+x1)/2,768,title,11 if j in (2,3,4) else 14,True,"white","center")
+        txt((x0+x1)/2,968,title,11 if j in (2,3,4) else 14,True,"white","center")
     for idx,(_,row) in enumerate(frame.iterrows()):
-        top=735-idx*145; bottom=top-145
-        rect(30,bottom,1740,145,"#fffaf7")
+        top=935-idx*195; bottom=top-195
+        rect(30,bottom,1740,195,"#fffaf7")
         for x in edges[1:-1]:
             ax.plot([x,x],[bottom,top],color="#202020",linewidth=1)
-        txt(42,bottom+74,row["Komoditas"],16,True)
-        txt(387,bottom+78,fmt_price(row["Latest Price"],row["Komoditas"]),17,True,align="center")
-        txt(387,bottom+49,row["Unit"] or "",10,align="center")
-        txt(387,bottom+27,row["Waktu sumber"] or "tanggal belum ada",8,align="center")
+        txt(42,bottom+103,row["Komoditas"],16,True)
+        txt(387,bottom+108,fmt_price(row["Latest Price"],row["Komoditas"]),17,True,align="center")
+        txt(387,bottom+77,row["Unit"] or "",10,align="center")
+        txt(387,bottom+53,row["Waktu sumber"] or "tanggal belum ada",8,align="center")
         for j,key in enumerate(["Day %","Month %","Year %"]):
             try: color="#a51d1d" if float(row[key])<0 else "#276c2a"
             except (TypeError,ValueError): color="#333333"
-            txt((edges[j+2]+edges[j+3])/2,bottom+73,fmt(row[key],True),9,False,color,"center")
-        reason=fill(str(row["Reason"] or "—"),34).splitlines()[:5]
-        for k,line in enumerate(reason): txt(758,bottom+115-k*23,line,10)
+            txt((edges[j+2]+edges[j+3])/2,bottom+103,fmt(row[key],True),9,False,color,"center")
+        reason_lines=fill(str(row["Reason"] or "—"),42,break_long_words=False).splitlines()
+        if len(reason_lines)>9:
+            reason_lines=reason_lines[:9]
+            reason_lines[-1]=reason_lines[-1].rstrip(" .,;") + "…"
+        reason_clip=Rectangle((edges[5]+8,bottom+14),edges[6]-edges[5]-16,170,transform=ax.transData)
+        for k,line in enumerate(reason_lines):
+            label= ax.text(758,bottom+177-k*18,line,fontsize=9,color="#181818",ha="left",va="center",family="DejaVu Sans")
+            label.set_clip_path(reason_clip)
         low,high,price=[row[k] for k in ["Low 1Y","High 1Y","Latest Price"]]
-        txt(1204,bottom+36,fmt_range(low,row["Komoditas"]),11)
-        txt(1757,bottom+36,fmt_range(high,row["Komoditas"]),11,align="right")
-        txt(1480,bottom+17,"Rentang: " + (row["Acuan rentang"] or "belum diverifikasi"),8,align="center")
-        rect(1207,bottom+69,544,13,"#f4f0eb")
+        txt(1204,bottom+54,fmt_range(low,row["Komoditas"]),11)
+        txt(1757,bottom+54,fmt_range(high,row["Komoditas"]),11,align="right")
+        txt(1480,bottom+30,"Rentang: " + (row["Acuan rentang"] or "belum diverifikasi"),8,align="center")
+        rect(1207,bottom+97,544,13,"#f4f0eb")
         try:
             low,high,price=[float(v) for v in (low,high,price)]
             if high>low:
                 pos=max(0,min(1,(price-low)/(high-low)))
-                ax.add_patch(Rectangle((1207+pos*544-3,bottom+60),6,34,color="#218497"))
-                txt(1207+pos*544,bottom+110,fmt_price(price,row["Komoditas"]),11,True,"#17657a","center")
+                marker_x=1207+pos*544
+                ax.add_patch(Rectangle((marker_x-3,bottom+88),6,34,color="#218497"))
+                label_x=max(1260,min(1700,marker_x))
+                txt(label_x,bottom+146,fmt_price(price,row["Komoditas"]),11,True,"#17657a","center")
         except (TypeError,ValueError): pass
     rect(30,108,1740,47,"#67a44f")
     txt(900,132,f"Indonesian Crude Price (per {icp_period or 'periode belum diisi'})",17,True,"white","center")
