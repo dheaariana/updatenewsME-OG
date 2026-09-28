@@ -248,7 +248,7 @@ def collect_public():
             jobs = {label: pool.submit(translate_summary, summary) for label, summary in summaries.items()}
             for label, job in jobs.items():
                 try:
-                    data[label]["Reason"] = "Ringkasan TE (terjemahan otomatis): " + job.result()
+                    data[label]["Reason"] = job.result()
                 except (requests.RequestException, ValueError, KeyError):
                     data[label]["Reason"] = "Terjemahan belum tersedia. Lihat penjelasan asli pada tautan sumber."
     # Hanya untuk hari contoh yang diberikan pengguna; jangan teruskan angka lama ke hari berikutnya.
@@ -418,8 +418,11 @@ if first_load:
         "Reason": "", "Link berita": "", "Waktu sumber": "", "Acuan rentang": "Belum diambil", "Status": "Belum diambil"
     } for name in NAMES], columns=COLS)
     st.session_state.editor_revision = 0
+    st.session_state.auto_reason = {}
 if "editor_revision" not in st.session_state:
     st.session_state.editor_revision = 0
+if "auto_reason" not in st.session_state:
+    st.session_state.auto_reason = {}
 
 refresh_clicked = st.button("🔄 Ambil dari halaman publik")
 if first_load or refresh_clicked:
@@ -431,6 +434,7 @@ if first_load or refresh_clicked:
         except (requests.RequestException, ValueError, KeyError, OSError, openpyxl.utils.exceptions.InvalidFileException) as exc:
             ranges, range_period = {}, "World Bank gagal dibaca"
             st.warning(f"Rentang bulanan World Bank belum bisa diperbarui: {exc}")
+        generated_reason = {record["Komoditas"]: record["Reason"] for _, record in new.iterrows()}
         for i, record in new.iterrows():
             label = record["Komoditas"]
             if label in ranges:
@@ -440,11 +444,14 @@ if first_load or refresh_clicked:
                 new.at[i, "Low 1Y"] = ""
                 new.at[i, "High 1Y"] = ""
                 new.at[i, "Acuan rentang"] = range_period
-            if old.at[label, "Reason"] and not str(old.at[label, "Reason"]).startswith(("Konteks pasar TE:", "Ringkasan TE (terjemahan otomatis):", "Terjemahan belum tersedia.", "Contoh 28/09/2026:")):
+            old_reason = str(old.at[label, "Reason"] or "")
+            auto_prefixes = ("Konteks pasar TE:", "Ringkasan TE (terjemahan otomatis):", "Terjemahan belum tersedia.", "Contoh 28/09/2026:")
+            if old_reason and old_reason != st.session_state.auto_reason.get(label) and not old_reason.startswith(auto_prefixes):
                 new.at[i, "Reason"] = old.at[label, "Reason"]
                 new.at[i, "Link berita"] = old.at[label, "Link berita"]
             # Jangan tampilkan harga lama seolah hasil pembacaan baru.
         st.session_state.frame = new
+        st.session_state.auto_reason = generated_reason
         st.session_state.editor_revision += 1
         st.session_state.last_refresh = datetime.now(ZoneInfo("Asia/Jakarta")).strftime("%d/%m/%Y %H:%M GMT+7")
         st.success("Pembacaan selesai. Periksa tanggal sumber harga harian dan periode World Bank sebelum mengunduh.")
@@ -463,7 +470,7 @@ with st.expander("✏️ Edit angka, rentang bulanan, alasan dan tautan berita")
         key=f"editor_{st.session_state.editor_revision}",
     )
     st.session_state.frame = edited
-    st.caption("Low–High otomatis berasal dari 12 rata-rata harga bulanan World Bank, bukan titik ekstrem harga harian. Reason diterjemahkan otomatis dari ringkasan TE, dengan tautan sumber untuk ditinjau.")
+    st.caption("Low–High berasal dari 12 rata-rata harga bulanan World Bank, bukan titik ekstrem harga harian. Reason berbahasa Indonesia berdasarkan ringkasan TE; tautan sumber tersedia untuk ditinjau.")
 
 with st.expander("✏️ Isi ICP bulanan"):
     icp_period = st.text_input("Periode", value="Agustus 2026")
