@@ -1,7 +1,8 @@
 """Dashboard gratis: baca halaman publik Trading Economics jika tersedia."""
 from datetime import datetime, timedelta
+from concurrent.futures import ThreadPoolExecutor
 from io import BytesIO
-from html import escape
+from html import escape, unescape
 import re
 from textwrap import fill
 from zoneinfo import ZoneInfo
@@ -168,6 +169,21 @@ def detail_market_fields(soup):
     return result
 
 
+@st.cache_data(ttl=86400, show_spinner=False)
+def translate_summary(english):
+    """Terjemahkan kutipan ringkas TE; cache teks yang sama agar hemat kuota gratis."""
+    response = requests.get(
+        "https://api.mymemory.translated.net/get",
+        params={"q": english, "langpair": "en|id"}, timeout=15,
+    )
+    response.raise_for_status()
+    payload = response.json()
+    translated = unescape(str(payload.get("responseData", {}).get("translatedText", ""))).strip()
+    if payload.get("quotaFinished") or payload.get("responseStatus") != 200 or not translated or translated.casefold() == english.casefold():
+        raise ValueError("Layanan terjemahan tidak memberikan hasil bahasa Indonesia")
+    return translated
+
+
 def collect_public():
     """Permintaan rendah: satu halaman daftar dan satu halaman per komoditas."""
     soup = fetch_html(URL + "/commodities")
@@ -210,6 +226,7 @@ def collect_public():
                 row["Status"] = "Tanggal terverifikasi" if is_fresh(row["Waktu sumber"]) else "Tanggal usang/tidak terbaca"
         data[label] = row
 
+    summaries = {}
     for label, path in NAMES.items():
         try:
             detail = fetch_html(URL + path)
@@ -221,11 +238,19 @@ def collect_public():
             if yearly and not data[label]["Year %"]:
                 data[label]["Year %"] = yearly
             if summary:
-                data[label]["Reason"] = "Konteks pasar TE: " + summary
+                summaries[label] = summary
                 data[label]["Link berita"] = URL + path
         except (requests.RequestException, ValueError):
             # Angka dari halaman daftar tetap ditampilkan bila halaman detail gagal.
             pass
+    if summaries:
+        with ThreadPoolExecutor(max_workers=4) as pool:
+            jobs = {label: pool.submit(translate_summary, summary) for label, summary in summaries.items()}
+            for label, job in jobs.items():
+                try:
+                    data[label]["Reason"] = "Ringkasan TE (terjemahan otomatis): " + job.result()
+                except (requests.RequestException, ValueError, KeyError):
+                    data[label]["Reason"] = "Terjemahan belum tersedia. Lihat penjelasan asli pada tautan sumber."
     # Hanya untuk hari contoh yang diberikan pengguna; jangan teruskan angka lama ke hari berikutnya.
     if TODAY.isoformat() == "2026-09-28":
         for label in NAMES:
@@ -280,6 +305,9 @@ def preview(frame, period, lalang, pendalian, lalang_note, pendalian_note):
         name = escape(str(row["Komoditas"]))
         link = escape(URL + NAMES[row["Komoditas"]], quote=True)
         reason = escape(str(row["Reason"] or "—"))
+        source_link = str(row["Link berita"] or "")
+        if source_link.startswith("https://"):
+            reason += f'<br><small><a href="{escape(source_link, quote=True)}" target="_blank" rel="noopener noreferrer">Lihat penjelasan sumber</a></small>'
         lines.append(
             f'<tr><td class="name"><a href="{link}" target="_blank">{name}</a></td>'
             f'<td class="price">{fmt_price(row["Latest Price"], row["Komoditas"])}<small>{escape(str(row["Unit"] or ""))} · {escape(str(row["Waktu sumber"] or "tanggal belum ada"))}</small></td>'
@@ -412,7 +440,7 @@ if first_load or refresh_clicked:
                 new.at[i, "Low 1Y"] = ""
                 new.at[i, "High 1Y"] = ""
                 new.at[i, "Acuan rentang"] = range_period
-            if old.at[label, "Reason"] and not str(old.at[label, "Reason"]).startswith(("Konteks pasar TE:", "Contoh 28/09/2026:")):
+            if old.at[label, "Reason"] and not str(old.at[label, "Reason"]).startswith(("Konteks pasar TE:", "Ringkasan TE (terjemahan otomatis):", "Terjemahan belum tersedia.", "Contoh 28/09/2026:")):
                 new.at[i, "Reason"] = old.at[label, "Reason"]
                 new.at[i, "Link berita"] = old.at[label, "Link berita"]
             # Jangan tampilkan harga lama seolah hasil pembacaan baru.
@@ -435,7 +463,7 @@ with st.expander("✏️ Edit angka, rentang bulanan, alasan dan tautan berita")
         key=f"editor_{st.session_state.editor_revision}",
     )
     st.session_state.frame = edited
-    st.caption("Low–High otomatis berasal dari 12 rata-rata harga bulanan World Bank, bukan titik ekstrem harga harian. Reason otomatis adalah ringkasan TE dan perlu ditinjau.")
+    st.caption("Low–High otomatis berasal dari 12 rata-rata harga bulanan World Bank, bukan titik ekstrem harga harian. Reason diterjemahkan otomatis dari ringkasan TE, dengan tautan sumber untuk ditinjau.")
 
 with st.expander("✏️ Isi ICP bulanan"):
     icp_period = st.text_input("Periode", value="Agustus 2026")

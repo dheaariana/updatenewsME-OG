@@ -8,6 +8,8 @@ Rentang tersebut **bukan** titik Low–High 52 minggu pada grafik harian Trading
 
 ICP Lalang dan Pendalian masih nilai awal dari contoh Agustus 2026. Perbarui angka dan periode setelah publikasi ESDM terbaru. Ringkasan pasar dapat diedit setelah ditinjau; alasan yang diedit manual dipertahankan pada pembacaan berikutnya.
 
+**Reason** diterjemahkan otomatis dari ringkasan halaman detail Trading Economics ke bahasa Indonesia melalui layanan terjemahan MyMemory (tanpa API key). Teks ringkasan publik dikirim ke layanan tersebut, lalu hasil untuk teks yang sama disimpan sementara agar tidak menghabiskan kuota tiap refresh. Tautan penjelasan asli bisa diklik pada tabel. Jika layanan terjemahan gagal atau kuotanya habis, aplikasi memberi status "Terjemahan belum tersedia" dan tautan sumber tetap ada. Tinjau terjemahan sebelum memakai laporan resmi; jika Trading Economics belum mengubah ringkasannya, Reason juga tidak berubah meskipun harga bergerak.
+
 Tabel dan hasil PNG menampilkan empat komoditas, perubahan harga, Reason, rentang bulanan 12 bulan, dan ICP. Harga yang kosong atau tanggal yang terlalu lama akan menonaktifkan unduhan PNG hingga pengguna memeriksa dan mengonfirmasi. Harga publik dapat tertunda; waktu membuat laporan tidak sama dengan waktu harga diperbarui.
 
 Sumber rentang: https://thedocs.worldbank.org/en/doc/74e8be41ceb20fa0da750cda2f6b9e4e-0050012026/world-bank-commodities-price-data-the-pink-sheet
