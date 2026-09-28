@@ -291,7 +291,7 @@ def preview(frame, period, lalang, pendalian, lalang_note, pendalian_note):
             marker = f'<span class="marker" style="left:{pos:.1f}%"></span>' if high > low else ""
         except (TypeError, ValueError):
             marker = ""
-        return f'<div class="rangebar">{marker}</div><div class="bounds"><span>{fmt_range(row["Low 1Y"],row["Komoditas"])}</span><span>{fmt_range(row["High 1Y"],row["Komoditas"])}</span></div><small>Rentang: {escape(str(row["Acuan rentang"] or "belum diverifikasi"))}</small>'
+        return f'<div class="rangebar">{marker}</div><div class="bounds"><span>{fmt_range(row["Low 1Y"],row["Komoditas"])}</span><span>{fmt_range(row["High 1Y"],row["Komoditas"])}</span></div>'
 
     def change(value):
         try:
@@ -332,8 +332,8 @@ def preview(frame, period, lalang, pendalian, lalang_note, pendalian_note):
     .report .icp td{text-align:left;height:34px;font-weight:bold}.report .icp td+td{text-align:center;font-weight:normal}
     </style>"""
     html += '<table class="report"><colgroup><col style="width:14%"><col style="width:15%"><col style="width:6%"><col style="width:6%"><col style="width:6%"><col style="width:29%"><col style="width:24%"></colgroup>'
-    html += f'<thead><tr><th colspan="7" class="title">Changes in Commodity Prices<small>Source: tradingeconomics.com · Updated: {datetime.now(ZoneInfo("Asia/Jakarta")):%d/%m/%Y %H:%M} GMT+7 (waktu laporan)</small></th></tr>'
-    html += '<tr class="heading"><th>Komoditas</th><th>Latest Price</th><th colspan="3">%Chg</th><th rowspan="2">Reason</th><th rowspan="2">Low–High (12 rata-rata bulanan)</th></tr>'
+    html += f'<thead><tr><th colspan="7" class="title">Changes in Commodity Prices<small>Source: tradingeconomics.com · Updated: {datetime.now(ZoneInfo("Asia/Jakarta")):%d/%m/%Y %H:%M} GMT+7</small></th></tr>'
+    html += '<tr class="heading"><th>Komoditas</th><th>Latest Price</th><th colspan="3">%Chg</th><th rowspan="2">Reason</th><th rowspan="2">Low–High (1 Year)</th></tr>'
     html += '<tr class="heading"><th></th><th></th><th>Day</th><th>Month</th><th>Year</th></tr></thead>'
     html += '<tbody>'+''.join(lines)+'</tbody>'
     html += f'<tr><th colspan="7" class="green">Indonesian Crude Price (per {escape(period or "periode belum diisi")})<br><small>Source: Kementerian ESDM, updated monthly</small></th></tr>'
@@ -358,7 +358,7 @@ def png(frame, icp_period, lalang, pendalian, lalang_note, pendalian_note):
     txt(900,1037,"Changes in Commodity Prices",19,True,"white","center")
     txt(900,1010,f"Source: tradingeconomics.com · laporan dibuat {datetime.now(ZoneInfo('Asia/Jakarta')):%d/%m/%Y %H:%M} GMT+7",9,False,"white","center")
     rect(30,935,1740,65,"#699ce4")
-    for j,title in enumerate(["Komoditas","Latest Price","Day","Month","Year","Reason","Low–High (12 bulan)"]):
+    for j,title in enumerate(["Komoditas","Latest Price","Day","Month","Year","Reason","Low–High (1 Year)"]):
         if j == 5: x0,x1=edges[5],edges[6]
         elif j == 6: x0,x1=edges[6],edges[7]
         else: x0,x1=edges[j],edges[j+1]
@@ -387,7 +387,6 @@ def png(frame, icp_period, lalang, pendalian, lalang_note, pendalian_note):
         low,high,price=[row[k] for k in ["Low 1Y","High 1Y","Latest Price"]]
         txt(1204,bottom+54,fmt_range(low,row["Komoditas"]),11)
         txt(1757,bottom+54,fmt_range(high,row["Komoditas"]),11,align="right")
-        txt(1480,bottom+30,"Rentang: " + (row["Acuan rentang"] or "belum diverifikasi"),8,align="center")
         rect(1207,bottom+97,544,13,"#f4f0eb")
         try:
             low,high,price=[float(v) for v in (low,high,price)]
