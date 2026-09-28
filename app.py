@@ -148,7 +148,7 @@ def fmt(value, signed=False):
         return "—"
 
 
-def preview(frame, period, lalang, pendalian):
+def preview(frame, period, lalang, pendalian, lalang_note, pendalian_note):
     """Tampilkan tata letak yang sama dengan keluaran PNG."""
     def bar(row):
         try:
@@ -195,17 +195,18 @@ def preview(frame, period, lalang, pendalian):
     .report .icp td{text-align:left;height:34px;font-weight:bold}.report .icp td+td{text-align:center;font-weight:normal}
     </style>"""
     html += '<table class="report"><colgroup><col style="width:14%"><col style="width:15%"><col style="width:6%"><col style="width:6%"><col style="width:6%"><col style="width:29%"><col style="width:24%"></colgroup>'
-    html += '<thead><tr><th colspan="7" class="title">Perubahan Harga Komoditas<small>Source: tradingeconomics.com</small></th></tr>'
+    html += f'<thead><tr><th colspan="7" class="title">Changes in Commodity Prices<small>Source: tradingeconomics.com · Updated: {datetime.now(ZoneInfo("Asia/Jakarta")):%d/%m/%Y %H:%M} GMT+7 (waktu laporan)</small></th></tr>'
     html += '<tr class="heading"><th>Komoditas</th><th>Latest Price</th><th colspan="3">%Chg</th><th rowspan="2">Reason</th><th rowspan="2">Low–High (1 Year)</th></tr>'
     html += '<tr class="heading"><th></th><th></th><th>Day</th><th>Month</th><th>Year</th></tr></thead>'
     html += '<tbody>'+''.join(lines)+'</tbody>'
-    html += f'<tr><th colspan="7" class="green">Indonesian Crude Price ({escape(period or "periode belum diisi")})</th></tr>'
-    html += '<tr><th colspan="2" class="lightgreen">Crude</th><th colspan="5" class="lightgreen">Price (USD/bbl)</th></tr>'
-    html += f'<tr class="icp"><td colspan="2">Lalang</td><td colspan="5">{fmt(lalang)}</td></tr><tr class="icp"><td colspan="2">Pendalian</td><td colspan="5">{fmt(pendalian)}</td></tr></table>'
+    html += f'<tr><th colspan="7" class="green">Indonesian Crude Price (per {escape(period or "periode belum diisi")})<br><small>Source: Kementerian ESDM, updated monthly</small></th></tr>'
+    html += '<tr><th class="lightgreen">Crude</th><th colspan="3" class="lightgreen">Price (USD/bbl)</th><th colspan="3" class="lightgreen">Notes</th></tr>'
+    html += f'<tr class="icp"><td>Lalang</td><td colspan="3">{fmt(lalang)}</td><td colspan="3">{escape(lalang_note or "—")}</td></tr>'
+    html += f'<tr class="icp"><td>Pendalian</td><td colspan="3">{fmt(pendalian)}</td><td colspan="3">{escape(pendalian_note or "—")}</td></tr></table>'
     return html
 
 
-def png(frame, icp_period, lalang, pendalian):
+def png(frame, icp_period, lalang, pendalian, lalang_note, pendalian_note):
     from matplotlib.patches import Rectangle
     fig, ax = plt.subplots(figsize=(18, 9), dpi=150)
     ax.set_xlim(0, 1800); ax.set_ylim(0, 900); ax.axis("off")
@@ -217,8 +218,8 @@ def png(frame, icp_period, lalang, pendalian):
         ax.text(x,y,str(s),fontsize=size,fontweight="bold" if bold else "normal",color=color,
                 ha=align,va="center",family="DejaVu Sans")
     rect(30,800,1740,58,"#3977c9")
-    txt(900,837,"Perubahan Harga Komoditas",19,True,"white","center")
-    txt(900,810,f"Source: tradingeconomics.com · dibuat {datetime.now(ZoneInfo('Asia/Jakarta')):%d/%m/%Y %H:%M} WIB",9,False,"white","center")
+    txt(900,837,"Changes in Commodity Prices",19,True,"white","center")
+    txt(900,810,f"Source: tradingeconomics.com · laporan dibuat {datetime.now(ZoneInfo('Asia/Jakarta')):%d/%m/%Y %H:%M} GMT+7",9,False,"white","center")
     rect(30,735,1740,65,"#699ce4")
     for j,title in enumerate(["Komoditas","Latest Price","Day","Month","Year","Reason","Low–High (1 Year)"]):
         if j == 5: x0,x1=edges[5],edges[6]
@@ -252,16 +253,19 @@ def png(frame, icp_period, lalang, pendalian):
                 txt(1207+pos*544,bottom+110,fmt(price),11,True,"#17657a","center")
         except (TypeError,ValueError): pass
     rect(30,108,1740,47,"#67a44f")
-    txt(900,132,f"Indonesian Crude Price ({icp_period or 'periode belum diisi'})",17,True,"white","center")
+    txt(900,132,f"Indonesian Crude Price (per {icp_period or 'periode belum diisi'})",17,True,"white","center")
     rect(30,75,1740,33,"#a1cf90")
     txt(160,92,"Crude",12,True,"white","center")
-    txt(1020,92,"Price (USD/bbl)",12,True,"white","center")
+    txt(700,92,"Price (USD/bbl)",12,True,"white","center")
+    txt(1380,92,"Notes",12,True,"white","center")
     rect(30,42,1740,33,"#fffaf7")
     txt(42,59,"Lalang",12,True)
-    txt(1020,59,fmt(lalang),12,align="center")
+    txt(700,59,fmt(lalang),12,align="center")
+    txt(1380,59,fill(lalang_note or "—",40).splitlines()[0],10,align="center")
     rect(30,9,1740,33,"#fffaf7")
     txt(42,26,"Pendalian",12,True)
-    txt(1020,26,fmt(pendalian),12,align="center")
+    txt(700,26,fmt(pendalian),12,align="center")
+    txt(1380,26,fill(pendalian_note or "—",40).splitlines()[0],10,align="center")
     out = BytesIO()
     fig.savefig(out, format="png", bbox_inches="tight", pad_inches=.2)
     plt.close(fig)
@@ -304,9 +308,11 @@ with st.expander("✏️ Isi ICP bulanan"):
     c1, c2 = st.columns(2)
     lalang = c1.number_input("Lalang (USD/bbl)", min_value=0.0, step=.01, value=None)
     pendalian = c2.number_input("Pendalian (USD/bbl)", min_value=0.0, step=.01, value=None)
+    lalang_note = st.text_input("Notes Lalang", value="Ref. untuk debitur a.n ITA")
+    pendalian_note = st.text_input("Notes Pendalian", value="Ref. untuk debitur a.n APG West Kampar")
 
 st.markdown("### Tampilan laporan")
-st.markdown(preview(edited, icp_period, lalang, pendalian), unsafe_allow_html=True)
+st.markdown(preview(edited, icp_period, lalang, pendalian, lalang_note, pendalian_note), unsafe_allow_html=True)
 with st.expander("Sumber dan status pembacaan"):
     st.dataframe(edited[["Komoditas", "Waktu sumber", "Status", "Link berita"]], hide_index=True, use_container_width=True)
 
@@ -318,6 +324,6 @@ if invalid:
     manual_verified = st.checkbox("Saya sudah mencocokkan ulang harga dan tanggal ke halaman sumber untuk baris tersebut")
 else:
     manual_verified = True
-st.download_button("⬇️ Unduh PNG", png(edited, icp_period, lalang, pendalian) if manual_verified else b"",
+st.download_button("⬇️ Unduh PNG", png(edited, icp_period, lalang, pendalian, lalang_note, pendalian_note) if manual_verified else b"",
                    f"komoditas_{timestamp}.png", "image/png", disabled=not manual_verified)
 st.download_button("⬇️ Unduh CSV", edited.to_csv(index=False).encode("utf-8-sig"), f"komoditas_{timestamp}.csv", "text/csv")
