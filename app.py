@@ -25,11 +25,24 @@ NAMES = {
     "Coal": "/commodity/coal",
     "Natural Gas": "/commodity/natural-gas",
 }
-LABELS = {"Nikel": "nickel", "Brent Oil": "brent", "Coal": "coal", "Natural Gas": "natural gas"}
+LABELS = {"Nikel": "nickel", "Brent Oil": "brent oil", "Coal": "coal", "Natural Gas": "natural gas"}
 HEADERS = {"User-Agent": "Mozilla/5.0 (compatible; personal commodity report)"}
 COLS = ["Komoditas", "Latest Price", "Unit", "Day %", "Month %", "Year %",
-        "Low 1Y", "High 1Y", "Reason", "Link berita", "Waktu sumber", "Status"]
+        "Low 1Y", "High 1Y", "Reason", "Link berita", "Waktu sumber", "Acuan rentang", "Status"]
 TODAY = datetime.now(ZoneInfo("Asia/Jakarta")).date()
+# Nilai awal dari gambar contoh pengguna tanggal 28/09/2026; bukan feed otomatis.
+REFERENCE_RANGE = {
+    "Nikel": ("14197.88", "19635.00"),
+    "Brent Oil": ("58.72", "126.41"),
+    "Coal": ("103.70", "152.25"),
+    "Natural Gas": ("2.483", "5.289"),
+}
+REFERENCE_REASON_20260928 = {
+    "Nikel": "Lemahnya permintaan downstream China dan tingginya inventori, di tengah kekhawatiran surplus pasokan global.",
+    "Brent Oil": "Kekhawatiran gangguan pasokan akibat konflik Timur Tengah dan ketidakpastian akses Selat Hormuz.",
+    "Coal": "Permintaan pembangkit listrik tetap kuat ketika harga LNG tinggi dan pasokan energi global terganggu.",
+    "Natural Gas": "Pasokan domestik AS relatif melimpah, sementara kenaikan kebutuhan LNG belum mengimbangi tekanan produksi.",
+}
 
 
 def quote_date(raw):
@@ -74,6 +87,22 @@ def clean_num(text):
     return match.group(0).replace(",", "") if match else ""
 
 
+def detail_fields(text, label):
+    """Ambil Yearly dan ringkasan beratribusi dari halaman detail publik."""
+    yearly = re.search(r"\bYearly\s+([+-]?\d+(?:\.\d+)?)%", text, re.I)
+    summary = re.search(rf"{re.escape(LABELS[label])}\s*-\s*Summary\s+(.+?)\s+{re.escape(LABELS[label])}\s*-\s*Stats", text, re.I | re.S)
+    paragraph = re.sub(r"\s+", " ", summary.group(1)).strip() if summary else ""
+    # Potong pada akhir kalimat agar tidak ada fragmen yang tampak sebagai kesimpulan.
+    if len(paragraph) > 330:
+        sentences = re.split(r"(?<=[.!?])\s+", paragraph)
+        paragraph = ""
+        for sentence in sentences:
+            if len(paragraph) + len(sentence) > 330:
+                break
+            paragraph += (" " if paragraph else "") + sentence
+    return (yearly.group(1) if yearly else "", paragraph)
+
+
 def collect_public():
     """Permintaan rendah: satu halaman daftar dan satu halaman per komoditas."""
     soup = fetch_html(URL + "/commodities")
@@ -83,7 +112,7 @@ def collect_public():
             "Komoditas": label, "Latest Price": "", "Unit": "",
             "Day %": "", "Month %": "", "Year %": "", "Low 1Y": "",
             "High 1Y": "", "Reason": "", "Link berita": "",
-            "Waktu sumber": "", "Status": "Belum ditemukan",
+            "Waktu sumber": "", "Acuan rentang": "", "Status": "Belum ditemukan",
         }
         anchor = soup.find("a", href=lambda h: bool(h and h.lower().rstrip("/") == path))
         tr = anchor.find_parent("tr") if anchor else None
@@ -117,26 +146,23 @@ def collect_public():
         data[label] = row
 
     for label, path in NAMES.items():
-        if data[label]["Year %"] or not data[label]["Latest Price"] or not data[label]["Waktu sumber"]:
-            continue
         try:
             detail = fetch_html(URL + path)
             text = detail.get_text(" ", strip=True)
-            # Batasi pencarian pada ringkasan awal yang memuat 'Over the past month'.
-            start = re.search(r"Over the past month", text, re.I)
-            if not start:
-                continue
-            excerpt = text[max(0, start.start()-260):start.start()+300]
-            yearly = re.search(r"(\d+(?:\.\d+)?)%\s+(higher|lower|up|down)\s+than a year ago", excerpt, re.I)
-            # Jangan gabungkan persentase detail dengan kutipan daftar yang berlainan waktu/harga.
-            quote = re.search(r"(?:rose|fell|climbed|dropped|increased|decreased)\s+to\s+([\d,.]+)\s+\S+\s+on\s+([A-Za-z]+\s+\d+,\s+\d{4})", excerpt, re.I)
-            matching = bool(quote and quote_date(quote.group(2)) == quote_date(data[label]["Waktu sumber"])
-                            and abs(float(quote.group(1).replace(",", "")) - float(data[label]["Latest Price"])) <= max(0.01, float(data[label]["Latest Price"]) * 0.0001))
-            if yearly and matching:
-                data[label]["Year %"] = ("-" if yearly.group(2).lower() in ("lower", "down") else "") + yearly.group(1)
+            yearly, summary = detail_fields(text, label)
+            if yearly and not data[label]["Year %"]:
+                data[label]["Year %"] = yearly
+            if summary:
+                data[label]["Reason"] = "Konteks pasar TE: " + summary
+                data[label]["Link berita"] = URL + path
         except (requests.RequestException, ValueError):
             # Angka dari halaman daftar tetap ditampilkan bila halaman detail gagal.
             pass
+    # Hanya untuk hari contoh yang diberikan pengguna; jangan teruskan angka lama ke hari berikutnya.
+    if TODAY.isoformat() == "2026-09-28":
+        for label in NAMES:
+            if not data[label]["Reason"]:
+                data[label]["Reason"] = "Contoh 28/09/2026: " + REFERENCE_REASON_20260928[label]
     return pd.DataFrame(data.values(), columns=COLS)
 
 
@@ -144,6 +170,13 @@ def fmt(value, signed=False):
     try:
         number = float(str(value).replace(",", ""))
         return f"{number:+.2f}%" if signed else f"{number:,.2f}"
+    except (TypeError, ValueError):
+        return "—"
+
+
+def fmt_range(value, commodity):
+    try:
+        return f"{float(str(value).replace(',', '')):,.{3 if commodity == 'Natural Gas' else 2}f}"
     except (TypeError, ValueError):
         return "—"
 
@@ -157,7 +190,7 @@ def preview(frame, period, lalang, pendalian, lalang_note, pendalian_note):
             marker = f'<span class="marker" style="left:{pos:.1f}%"></span>' if high > low else ""
         except (TypeError, ValueError):
             marker = ""
-        return f'<div class="rangebar">{marker}</div><div class="bounds"><span>{fmt(row["Low 1Y"])}</span><span>{fmt(row["High 1Y"])}</span></div>'
+        return f'<div class="rangebar">{marker}</div><div class="bounds"><span>{fmt_range(row["Low 1Y"],row["Komoditas"])}</span><span>{fmt_range(row["High 1Y"],row["Komoditas"])}</span></div><small>Rentang: {escape(str(row["Acuan rentang"] or "belum diverifikasi"))}</small>'
 
     def change(value):
         try:
@@ -242,8 +275,9 @@ def png(frame, icp_period, lalang, pendalian, lalang_note, pendalian_note):
         reason=fill(str(row["Reason"] or "—"),34).splitlines()[:5]
         for k,line in enumerate(reason): txt(758,bottom+115-k*23,line,10)
         low,high,price=[row[k] for k in ["Low 1Y","High 1Y","Latest Price"]]
-        txt(1204,bottom+36,fmt(low),11)
-        txt(1757,bottom+36,fmt(high),11,align="right")
+        txt(1204,bottom+36,fmt_range(low,row["Komoditas"]),11)
+        txt(1757,bottom+36,fmt_range(high,row["Komoditas"]),11,align="right")
+        txt(1480,bottom+17,"Rentang: " + (row["Acuan rentang"] or "belum diverifikasi"),8,align="center")
         rect(1207,bottom+69,544,13,"#f4f0eb")
         try:
             low,high,price=[float(v) for v in (low,high,price)]
@@ -275,7 +309,8 @@ def png(frame, icp_period, lalang, pendalian, lalang_note, pendalian_note):
 if "frame" not in st.session_state:
     st.session_state.frame = pd.DataFrame([{
         "Komoditas": name, "Latest Price": "", "Unit": "", "Day %": "", "Month %": "", "Year %": "",
-        "Low 1Y": "", "High 1Y": "", "Reason": "", "Link berita": "", "Waktu sumber": "", "Status": "Belum diambil"
+        "Low 1Y": REFERENCE_RANGE[name][0], "High 1Y": REFERENCE_RANGE[name][1],
+        "Reason": "", "Link berita": "", "Waktu sumber": "", "Acuan rentang": "Contoh 28/09/2026", "Status": "Belum diambil"
     } for name in NAMES], columns=COLS)
 
 if st.button("🔄 Ambil dari halaman publik"):
@@ -284,8 +319,11 @@ if st.button("🔄 Ambil dari halaman publik"):
         new = collect_public()
         for i, record in new.iterrows():
             label = record["Komoditas"]
-            for column in ["Low 1Y", "High 1Y", "Reason", "Link berita"]:
+            for column in ["Low 1Y", "High 1Y", "Acuan rentang"]:
                 new.at[i, column] = old.at[label, column]
+            if old.at[label, "Reason"] and not str(old.at[label, "Reason"]).startswith(("Konteks pasar TE:", "Contoh 28/09/2026:")):
+                new.at[i, "Reason"] = old.at[label, "Reason"]
+                new.at[i, "Link berita"] = old.at[label, "Link berita"]
             # Jangan tampilkan harga lama seolah hasil pembacaan baru.
         st.session_state.frame = new
         st.success("Pembacaan selesai. Periksa tanggal sumber dan angka sebelum mengunduh.")
@@ -301,15 +339,17 @@ with st.expander("✏️ Edit angka, rentang 1 tahun, alasan dan tautan berita")
         key="editor",
     )
     st.session_state.frame = edited
-    st.caption("Angka yang tidak terbaca dibiarkan kosong. Jika memperbarui harga manual, isi Waktu sumber dengan YYYY-MM-DD sesuai halaman Trading Economics.")
+    st.caption("Low–High dimulai dari gambar 28/09/2026, bukan rentang yang diambil otomatis. Perbarui Acuan rentang saat memeriksanya. Reason otomatis adalah ringkasan berbahasa Inggris dari TE dan perlu ditinjau.")
 
 with st.expander("✏️ Isi ICP bulanan"):
-    icp_period = st.text_input("Periode", value="")
+    icp_period = st.text_input("Periode", value="Agustus 2026")
     c1, c2 = st.columns(2)
-    lalang = c1.number_input("Lalang (USD/bbl)", min_value=0.0, step=.01, value=None)
-    pendalian = c2.number_input("Pendalian (USD/bbl)", min_value=0.0, step=.01, value=None)
+    lalang = c1.number_input("Lalang (USD/bbl)", min_value=0.0, step=.01, value=93.15)
+    pendalian = c2.number_input("Pendalian (USD/bbl)", min_value=0.0, step=.01, value=90.95)
     lalang_note = st.text_input("Notes Lalang", value="Ref. untuk debitur a.n ITA")
     pendalian_note = st.text_input("Notes Pendalian", value="Ref. untuk debitur a.n APG West Kampar")
+
+st.caption("Low–High berasal dari gambar contoh 28/09/2026; ICP dari contoh periode Agustus 2026. Keduanya adalah nilai awal yang perlu diperbarui saat sumber menerbitkan angka baru.")
 
 st.markdown("### Tampilan laporan")
 st.markdown(preview(edited, icp_period, lalang, pendalian, lalang_note, pendalian_note), unsafe_allow_html=True)
@@ -319,6 +359,9 @@ with st.expander("Sumber dan status pembacaan"):
 timestamp = datetime.now(ZoneInfo("Asia/Jakarta")).strftime("%Y%m%d")
 invalid = [str(row["Komoditas"]) for _,row in edited.iterrows()
            if not row["Latest Price"] or not is_fresh(row["Waktu sumber"])]
+missing_year = [str(row["Komoditas"]) for _,row in edited.iterrows() if not row["Year %"]]
+if missing_year:
+    st.warning("Year % belum terambil untuk: " + ", ".join(missing_year) + ". Isi setelah mencocokkan halaman detail sumber.")
 if invalid:
     st.warning("Harga kosong atau lebih dari satu hari perdagangan sejak tanggal sumber: " + ", ".join(invalid))
     manual_verified = st.checkbox("Saya sudah mencocokkan ulang harga dan tanggal ke halaman sumber untuk baris tersebut")

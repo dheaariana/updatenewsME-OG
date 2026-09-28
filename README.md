@@ -8,6 +8,8 @@ Tabel utama dan hasil **Unduh PNG** mengikuti format contoh: empat komoditas, pe
 
 Format versi ini mengikuti gambar terbaru: judul **Changes in Commodity Prices**, catatan waktu laporan GMT+7, serta kolom Notes untuk ICP Lalang dan Pendalian. Waktu laporan dan tanggal harga merupakan hal yang berbeda; tanggal sumber tiap harga tampil di bawah angkanya.
 
+Versi berikutnya mencoba membaca **Yearly** dan ringkasan pasar dari masing-masing halaman detail Trading Economics. Ringkasan TE ditampilkan sebagai konteks pasar berbahasa Inggris, bisa diedit ke Bahasa Indonesia setelah ditinjau. Jika Yearly gagal dibaca, aplikasi menandainya kosong; jangan menyalin angka dari tanggal lain. Low–High memiliki nilai awal dari gambar contoh 28 September 2026 dan menampilkan tanggal acuannya. ICP Lalang 93,15 dan Pendalian 90,95 merupakan nilai awal contoh periode Agustus 2026, bukan pembaruan otomatis. Ubah nilai awal saat sumber baru terbit.
+
 Ini bukan API Trading Economics. Program mengirim paling banyak lima permintaan halaman saat tombol ditekan; tanpa penjadwalan otomatis, tanpa bypass proteksi akses. Jika situs tidak lagi membolehkan pembacaan, gunakan versi lokal `Dashboard_Komoditas_Tanpa_API.zip`.
 
 ## Ketepatan waktu harga
