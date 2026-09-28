@@ -143,6 +143,31 @@ def detail_fields(text, label):
     return (yearly.group(1) if yearly else "", paragraph)
 
 
+def detail_market_fields(soup):
+    """Angka pada header halaman detail, dengan presisi sesuai yang diterbitkan."""
+    grid = soup.select_one("#market_stats_grid")
+    if not grid:
+        return {}
+    result = {}
+    last = grid.select_one("#market_last")
+    day = grid.select_one("#market_daily_Pchg")
+    if last:
+        result["Latest Price"] = clean_num(last.get_text(" ", strip=True))
+    if day:
+        result["Day %"] = clean_num(day.get_text(" ", strip=True))
+    for block in grid.select(".market-header-value"):
+        header = block.select_one(".te-market-header")
+        if not header:
+            continue
+        name = header.get_text(" ", strip=True).lower()
+        key = {"monthly": "Month %", "yearly": "Year %"}.get(name)
+        if key:
+            match = re.search(r"[+-]?\d+(?:\.\d+)?%", block.get_text(" ", strip=True))
+            if match:
+                result[key] = clean_num(match.group(0))
+    return result
+
+
 def collect_public():
     """Permintaan rendah: satu halaman daftar dan satu halaman per komoditas."""
     soup = fetch_html(URL + "/commodities")
@@ -189,6 +214,9 @@ def collect_public():
         try:
             detail = fetch_html(URL + path)
             text = detail.get_text(" ", strip=True)
+            live_fields = detail_market_fields(detail)
+            if all(live_fields.get(k) for k in ("Latest Price", "Day %", "Month %", "Year %")):
+                data[label].update(live_fields)
             yearly, summary = detail_fields(text, label)
             if yearly and not data[label]["Year %"]:
                 data[label]["Year %"] = yearly
@@ -211,6 +239,14 @@ def fmt(value, signed=False):
         number = float(str(value).replace(",", ""))
         return f"{number:+.2f}%" if signed else f"{number:,.2f}"
     except (TypeError, ValueError):
+        return "—"
+
+
+def fmt_price(value, commodity):
+    try:
+        digits = {"Nikel": 2, "Brent Oil": 3, "Coal": 2, "Natural Gas": 4}[commodity]
+        return f"{float(str(value).replace(',', '')):,.{digits}f}"
+    except (TypeError, ValueError, KeyError):
         return "—"
 
 
@@ -246,7 +282,7 @@ def preview(frame, period, lalang, pendalian, lalang_note, pendalian_note):
         reason = escape(str(row["Reason"] or "—"))
         lines.append(
             f'<tr><td class="name"><a href="{link}" target="_blank">{name}</a></td>'
-            f'<td class="price">{fmt(row["Latest Price"])}<small>{escape(str(row["Unit"] or ""))} · {escape(str(row["Waktu sumber"] or "tanggal belum ada"))}</small></td>'
+            f'<td class="price">{fmt_price(row["Latest Price"], row["Komoditas"])}<small>{escape(str(row["Unit"] or ""))} · {escape(str(row["Waktu sumber"] or "tanggal belum ada"))}</small></td>'
             f'<td>{change(row["Day %"])}</td><td>{change(row["Month %"])}</td><td>{change(row["Year %"])}</td>'
             f'<td class="reason">{reason}</td><td class="range">{bar(row)}</td></tr>'
         )
@@ -305,7 +341,7 @@ def png(frame, icp_period, lalang, pendalian, lalang_note, pendalian_note):
         for x in edges[1:-1]:
             ax.plot([x,x],[bottom,top],color="#202020",linewidth=1)
         txt(42,bottom+74,row["Komoditas"],16,True)
-        txt(387,bottom+78,fmt(row["Latest Price"]),17,True,align="center")
+        txt(387,bottom+78,fmt_price(row["Latest Price"],row["Komoditas"]),17,True,align="center")
         txt(387,bottom+49,row["Unit"] or "",10,align="center")
         txt(387,bottom+27,row["Waktu sumber"] or "tanggal belum ada",8,align="center")
         for j,key in enumerate(["Day %","Month %","Year %"]):
@@ -324,7 +360,7 @@ def png(frame, icp_period, lalang, pendalian, lalang_note, pendalian_note):
             if high>low:
                 pos=max(0,min(1,(price-low)/(high-low)))
                 ax.add_patch(Rectangle((1207+pos*544-3,bottom+60),6,34,color="#218497"))
-                txt(1207+pos*544,bottom+110,fmt(price),11,True,"#17657a","center")
+                txt(1207+pos*544,bottom+110,fmt_price(price,row["Komoditas"]),11,True,"#17657a","center")
         except (TypeError,ValueError): pass
     rect(30,108,1740,47,"#67a44f")
     txt(900,132,f"Indonesian Crude Price (per {icp_period or 'periode belum diisi'})",17,True,"white","center")
@@ -346,14 +382,19 @@ def png(frame, icp_period, lalang, pendalian, lalang_note, pendalian_note):
     return out.getvalue()
 
 
-if "frame" not in st.session_state:
+first_load = "frame" not in st.session_state
+if first_load:
     st.session_state.frame = pd.DataFrame([{
         "Komoditas": name, "Latest Price": "", "Unit": "", "Day %": "", "Month %": "", "Year %": "",
         "Low 1Y": "", "High 1Y": "",
         "Reason": "", "Link berita": "", "Waktu sumber": "", "Acuan rentang": "Belum diambil", "Status": "Belum diambil"
     } for name in NAMES], columns=COLS)
+    st.session_state.editor_revision = 0
+if "editor_revision" not in st.session_state:
+    st.session_state.editor_revision = 0
 
-if st.button("🔄 Ambil dari halaman publik"):
+refresh_clicked = st.button("🔄 Ambil dari halaman publik")
+if first_load or refresh_clicked:
     old = st.session_state.frame.set_index("Komoditas")
     try:
         new = collect_public()
@@ -376,9 +417,14 @@ if st.button("🔄 Ambil dari halaman publik"):
                 new.at[i, "Link berita"] = old.at[label, "Link berita"]
             # Jangan tampilkan harga lama seolah hasil pembacaan baru.
         st.session_state.frame = new
+        st.session_state.editor_revision += 1
+        st.session_state.last_refresh = datetime.now(ZoneInfo("Asia/Jakarta")).strftime("%d/%m/%Y %H:%M GMT+7")
         st.success("Pembacaan selesai. Periksa tanggal sumber harga harian dan periode World Bank sebelum mengunduh.")
     except (requests.RequestException, ValueError) as exc:
         st.warning(f"Halaman publik tidak dapat dibaca sekarang: {exc}. Isi tabel secara manual.")
+
+if "last_refresh" in st.session_state:
+    st.caption(f"Terakhir dibaca aplikasi: {st.session_state.last_refresh}. Tanggal harga per komoditas dan periode World Bank tertera di tabel.")
 
 with st.expander("✏️ Edit angka, rentang bulanan, alasan dan tautan berita"):
     edited = st.data_editor(
@@ -386,7 +432,7 @@ with st.expander("✏️ Edit angka, rentang bulanan, alasan dan tautan berita")
         disabled=["Komoditas", "Status"],
         column_config={"Reason": st.column_config.TextColumn("Reason", width="large"),
                        "Link berita": st.column_config.LinkColumn("Link berita")},
-        key="editor",
+        key=f"editor_{st.session_state.editor_revision}",
     )
     st.session_state.frame = edited
     st.caption("Low–High otomatis berasal dari 12 rata-rata harga bulanan World Bank, bukan titik ekstrem harga harian. Reason otomatis adalah ringkasan TE dan perlu ditinjau.")
