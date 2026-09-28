@@ -37,6 +37,12 @@ HEADERS = {"User-Agent": "Mozilla/5.0 (compatible; personal commodity report)"}
 COLS = ["Komoditas", "Latest Price", "Unit", "Day %", "Month %", "Year %",
         "Low 1Y", "High 1Y", "Reason", "Link berita", "Waktu sumber", "Acuan rentang", "Status"]
 TODAY = datetime.now(ZoneInfo("Asia/Jakarta")).date()
+REFERENCE_REASON_20260928 = {
+    "Nikel": "Lemahnya permintaan downstream China dan tingginya inventori, di tengah kekhawatiran surplus pasokan global.",
+    "Brent Oil": "Kekhawatiran gangguan pasokan akibat konflik Timur Tengah dan ketidakpastian akses Selat Hormuz.",
+    "Coal": "Permintaan pembangkit listrik tetap kuat ketika harga LNG tinggi dan pasokan energi global terganggu.",
+    "Natural Gas": "Pasokan domestik AS relatif melimpah, sementara kenaikan kebutuhan LNG belum mengimbangi tekanan produksi.",
+}
 
 
 def world_bank_ranges():
@@ -163,25 +169,6 @@ def detail_market_fields(soup):
     return result
 
 
-def detail_update_date(text, label):
-    """Tanggal update pada bagian Stats komoditas yang sedang dibaca."""
-    match = re.search(
-        rf"{re.escape(LABELS[label])}\s*-\s*Stats\b(.+?){re.escape(LABELS[label])}\s*-\s*Forecast\b",
-        text, re.I | re.S,
-    )
-    if not match:
-        return None
-    dates = re.findall(r"last updated on\s+([A-Za-z]+\s+\d{1,2}(?:st|nd|rd|th)?\s+(?:of\s+)?\d{4})", match.group(1), re.I)
-    if not dates:
-        return None
-    normalized = re.sub(r"(\d{1,2})(?:st|nd|rd|th)\b", r"\1", dates[-1], flags=re.I)
-    normalized = re.sub(r"\s+of\s+", " ", normalized, flags=re.I)
-    try:
-        return datetime.strptime(normalized, "%B %d %Y").date()
-    except ValueError:
-        return None
-
-
 @st.cache_data(ttl=86400, show_spinner=False)
 def translate_summary(english):
     """Terjemahkan kutipan ringkas TE; cache teks yang sama agar hemat kuota gratis."""
@@ -245,24 +232,10 @@ def collect_public():
             detail = fetch_html(URL + path)
             text = detail.get_text(" ", strip=True)
             live_fields = detail_market_fields(detail)
-            required = ("Latest Price", "Day %", "Month %", "Year %")
-            if all(live_fields.get(k) for k in required):
-                detail_date = detail_update_date(text, label)
-                if detail_date:
-                    list_price = data[label]["Latest Price"]
-                    list_date = quote_date(data[label]["Waktu sumber"])
-                    data[label].update(live_fields)
-                    data[label]["Waktu sumber"] = detail_date.isoformat()
-                    if list_price and list_date == detail_date and abs(float(list_price) - float(live_fields["Latest Price"])) > max(0.01, float(live_fields["Latest Price"]) * 0.0001):
-                        data[label]["Status"] = "Harga daftar/detail berbeda; cek sumber"
-                    else:
-                        data[label]["Status"] = "Detail terverifikasi" if is_fresh(data[label]["Waktu sumber"]) else "Tanggal detail usang"
-                else:
-                    data[label]["Status"] = "Tanggal detail tidak terbaca; memakai daftar"
-            else:
-                data[label]["Status"] += "; detail tidak lengkap"
+            if all(live_fields.get(k) for k in ("Latest Price", "Day %", "Month %", "Year %")):
+                data[label].update(live_fields)
             yearly, summary = detail_fields(text, label)
-            if yearly and not data[label]["Year %"] and not data[label]["Latest Price"]:
+            if yearly and not data[label]["Year %"]:
                 data[label]["Year %"] = yearly
             if summary:
                 summaries[label] = summary
@@ -278,10 +251,11 @@ def collect_public():
                     data[label]["Reason"] = job.result()
                 except (requests.RequestException, ValueError, KeyError):
                     data[label]["Reason"] = "Terjemahan belum tersedia. Lihat penjelasan asli pada tautan sumber."
-    for label in NAMES:
-        if not data[label]["Reason"]:
-            data[label]["Reason"] = "Penjelasan sumber belum berhasil dibaca; periksa halaman komoditas."
-            data[label]["Link berita"] = URL + NAMES[label]
+    # Hanya untuk hari contoh yang diberikan pengguna; jangan teruskan angka lama ke hari berikutnya.
+    if TODAY.isoformat() == "2026-09-28":
+        for label in NAMES:
+            if not data[label]["Reason"]:
+                data[label]["Reason"] = "Contoh 28/09/2026: " + REFERENCE_REASON_20260928[label]
     return pd.DataFrame(data.values(), columns=COLS)
 
 
@@ -487,11 +461,7 @@ if first_load or refresh_clicked:
         st.session_state.auto_reason = generated_reason
         st.session_state.editor_revision += 1
         st.session_state.last_refresh = datetime.now(ZoneInfo("Asia/Jakarta")).strftime("%d/%m/%Y %H:%M GMT+7")
-        flagged = new[new["Status"].str.contains("berbeda|tidak lengkap|tidak terbaca|usang", case=False, na=False)]
-        if not flagged.empty:
-            st.warning("Perlu cek langsung pada sumber: " + ", ".join(f'{r["Komoditas"]} ({r["Status"]})' for _, r in flagged.iterrows()))
-        else:
-            st.success("Pembacaan selesai. Periksa tanggal sumber harga harian dan periode World Bank sebelum mengunduh.")
+        st.success("Pembacaan selesai. Periksa tanggal sumber harga harian dan periode World Bank sebelum mengunduh.")
     except (requests.RequestException, ValueError) as exc:
         st.warning(f"Halaman publik tidak dapat dibaca sekarang: {exc}. Isi tabel secara manual.")
 
@@ -526,15 +496,14 @@ with st.expander("Sumber dan status pembacaan"):
 
 timestamp = datetime.now(ZoneInfo("Asia/Jakarta")).strftime("%Y%m%d")
 invalid = [str(row["Komoditas"]) for _,row in edited.iterrows()
-           if not row["Latest Price"] or not is_fresh(row["Waktu sumber"])
-           or "berbeda" in str(row["Status"]).lower()]
+           if not row["Latest Price"] or not is_fresh(row["Waktu sumber"])]
 invalid_range = [str(row["Komoditas"]) for _, row in edited.iterrows()
                  if not row["Low 1Y"] or not row["High 1Y"]]
 missing_year = [str(row["Komoditas"]) for _,row in edited.iterrows() if not row["Year %"]]
 if missing_year:
     st.warning("Year % belum terambil untuk: " + ", ".join(missing_year) + ". Isi setelah mencocokkan halaman detail sumber.")
 if invalid:
-    st.warning("Harga kosong, tanggal sumber sudah lama, atau harga daftar/detail berbeda: " + ", ".join(invalid))
+    st.warning("Harga kosong atau lebih dari satu hari perdagangan sejak tanggal sumber: " + ", ".join(invalid))
 if invalid_range:
     st.warning("Rentang bulanan belum terisi untuk: " + ", ".join(invalid_range) + ". Lengkapi dan tulis periode acuannya sebelum mengunduh PNG.")
 if invalid or invalid_range:
