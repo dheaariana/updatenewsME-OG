@@ -18,3 +18,5 @@ Tabel dan hasil PNG menampilkan empat komoditas, perubahan harga, Reason, rentan
 Sumber rentang: https://thedocs.worldbank.org/en/doc/74e8be41ceb20fa0da750cda2f6b9e4e-0050012026/world-bank-commodities-price-data-the-pink-sheet
 
 Sumber harga harian: https://tradingeconomics.com/commodities
+
+Jika harga harian di luar rentang 12 rata-rata bulanan, grafik menampilkan penanda oranye dan tulisan “di atas High” atau “di bawah Low”. Penanda di tepi bukan nilai High/Low baru; angka batas tetap angka bulanan World Bank.
