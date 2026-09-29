@@ -318,21 +318,22 @@ def preview(frame, period, lalang, pendalian, lalang_note, pendalian_note):
         try:
             low, high, price = [float(str(row[k]).replace(",", "")) for k in ("Low 1Y", "High 1Y", "Latest Price")]
             if high > low:
-                if price > high:
-                    marker = f'<span class="price-marker outside" style="right:0">{fmt_price(price,row["Komoditas"])} ↑ di atas High</span><span class="marker outside" style="right:0"></span>'
-                elif price < low:
-                    marker = f'<span class="price-marker outside" style="left:0">↓ {fmt_price(price,row["Komoditas"])} di bawah Low</span><span class="marker outside" style="left:0"></span>'
-                else:
-                    pos = 100 * (price - low) / (high - low)
-                    label_pos = max(13, min(87, pos))
-                    marker = (f'<span class="price-marker" style="left:{label_pos:.1f}%">'
-                              f'{fmt_price(price,row["Komoditas"])}</span>'
-                              f'<span class="marker" style="left:{pos:.1f}%"></span>')
+                axis_low, axis_high = min(low, price), max(high, price)
+                pct = lambda value: 100 * (value - axis_low) / (axis_high - axis_low)
+                low_pos, high_pos, price_pos = pct(low), pct(high), pct(price)
+                label_pos = max(13, min(87, price_pos))
+                marker = (f'<span class="range-fill" style="left:{low_pos:.1f}%;width:{high_pos-low_pos:.1f}%"></span>'
+                          f'<span class="price-marker" style="left:{label_pos:.1f}%">{fmt_price(price,row["Komoditas"])}</span>'
+                          f'<span class="marker" style="left:{price_pos:.1f}%"></span>')
+                bounds = (f'<div class="bounds"><span style="left:{low_pos:.1f}%">{fmt_range(low,row["Komoditas"])}</span>'
+                          f'<span class="high-bound" style="left:{high_pos:.1f}%">{fmt_range(high,row["Komoditas"])}</span></div>')
             else:
                 marker = ""
+                bounds = ""
         except (TypeError, ValueError):
             marker = ""
-        return f'<div class="rangebar">{marker}</div><div class="bounds"><span>{fmt_range(row["Low 1Y"],row["Komoditas"])}</span><span>{fmt_range(row["High 1Y"],row["Komoditas"])}</span></div>'
+            bounds = ""
+        return f'<div class="rangebar">{marker}</div>{bounds}'
 
     def change(value):
         try:
@@ -369,12 +370,14 @@ def preview(frame, period, lalang, pendalian, lalang_note, pendalian_note):
     .report td.reason{line-height:1.35;font-size:14px;overflow-wrap:anywhere;vertical-align:middle}
     .report td.reason .reason-text{display:block;text-align:justify;text-justify:inter-word;white-space:pre-line}
     .report td.reason .reason-link{display:block;text-align:left;margin-top:6px}
-    .report .rangebar{height:12px;background:#f3f0eb;border:1px solid #d8cec7;position:relative;margin:38px 5px 12px}
+    .report .rangebar{height:12px;background:#fff;border:1px solid #d8cec7;position:relative;margin:38px 5px 12px}
+    .report .range-fill{position:absolute;top:0;height:100%;background:#f3f0eb}
     .report .price-marker{position:absolute;top:-30px;transform:translateX(-50%);font-size:14px;font-weight:bold;color:#17657a;white-space:nowrap}
-    .report .price-marker.outside{transform:none;color:#9a4b13;font-size:12px}
     .report .marker{position:absolute;background:#218497;height:25px;width:5px;top:-7px;transform:translateX(-50%)}
-    .report .marker.outside{background:#c16b2f;transform:none}
-    .report .bounds{display:flex;justify-content:space-between;font-size:12px;color:#53606a}
+    .report .bounds{position:relative;height:20px;margin:0 5px;font-size:12px;color:#53606a}
+    .report .bounds span{position:absolute;top:0;transform:translateX(-50%);white-space:nowrap}
+    .report .bounds span:first-child{transform:translateX(0)}
+    .report .bounds span.high-bound{transform:translateX(-100%)}
     .report .icp td{text-align:left;height:34px;font-weight:bold}.report .icp td+td{text-align:center;font-weight:normal}
     </style>"""
     html += '<table class="report"><colgroup><col style="width:14%"><col style="width:15%"><col style="width:6%"><col style="width:6%"><col style="width:6%"><col style="width:29%"><col style="width:24%"></colgroup>'
@@ -457,23 +460,19 @@ def png(frame, icp_period, lalang, pendalian, lalang_note, pendalian_note):
                 label.set_clip_path(reason_clip)
                 x += measure(word) + extra
         low,high,price=[row[k] for k in ["Low 1Y","High 1Y","Latest Price"]]
-        txt(1204,bottom+54,fmt_range(low,row["Komoditas"]),11)
-        txt(1757,bottom+54,fmt_range(high,row["Komoditas"]),11,align="right")
-        rect(1207,bottom+97,544,13,"#f4f0eb")
         try:
             low,high,price=[float(v) for v in (low,high,price)]
             if high>low:
-                pos=max(0,min(1,(price-low)/(high-low)))
-                marker_x=1207+pos*544
-                outside = price < low or price > high
-                ax.add_patch(Rectangle((marker_x-3,bottom+88),6,34,color="#c16b2f" if outside else "#218497"))
-                if price > high:
-                    txt(1750,bottom+146,fmt_price(price,row["Komoditas"])+" ↑ di atas High",9,True,"#9a4b13","right")
-                elif price < low:
-                    txt(1207,bottom+146,"↓ "+fmt_price(price,row["Komoditas"])+" di bawah Low",9,True,"#9a4b13")
-                else:
-                    label_x=max(1260,min(1700,marker_x))
-                    txt(label_x,bottom+146,fmt_price(price,row["Komoditas"]),11,True,"#17657a","center")
+                axis_low,axis_high=min(low,price),max(high,price)
+                x_of=lambda value:1207+(value-axis_low)/(axis_high-axis_low)*544
+                low_x,high_x,marker_x=x_of(low),x_of(high),x_of(price)
+                rect(1207,bottom+97,544,13,"#ffffff")
+                ax.add_patch(Rectangle((low_x,bottom+97),high_x-low_x,13,facecolor="#f4f0eb",edgecolor="none"))
+                txt(low_x,bottom+54,fmt_range(low,row["Komoditas"]),11)
+                txt(high_x,bottom+54,fmt_range(high,row["Komoditas"]),11,align="right")
+                ax.add_patch(Rectangle((marker_x-3,bottom+88),6,34,color="#218497"))
+                label_x=max(1260,min(1700,marker_x))
+                txt(label_x,bottom+146,fmt_price(price,row["Komoditas"]),11,True,"#17657a","center")
         except (TypeError,ValueError): pass
     rect(30,108,1740,47,"#67a44f")
     txt(900,132,f"Indonesian Crude Price (per {icp_period or 'periode belum diisi'})",17,True,"white","center")

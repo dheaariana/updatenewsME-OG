@@ -19,4 +19,4 @@ Sumber rentang: https://thedocs.worldbank.org/en/doc/74e8be41ceb20fa0da750cda2f6
 
 Sumber harga harian: https://tradingeconomics.com/commodities
 
-Jika harga harian di luar rentang 12 rata-rata bulanan, grafik menampilkan penanda oranye dan tulisan “di atas High” atau “di bawah Low”. Penanda di tepi bukan nilai High/Low baru; angka batas tetap angka bulanan World Bank.
+Jika harga harian di luar rentang 12 rata-rata bulanan, skala grafik meluas hingga harga terbaru. Area abu-abu tetap menunjukkan batas rendah–tinggi World Bank; angka batas tidak diubah. Garis biru menunjukkan harga Trading Economics pada skalanya.
