@@ -37,12 +37,6 @@ HEADERS = {"User-Agent": "Mozilla/5.0 (compatible; personal commodity report)"}
 COLS = ["Komoditas", "Latest Price", "Unit", "Day %", "Month %", "Year %",
         "Low 1Y", "High 1Y", "Reason", "Link berita", "Waktu sumber", "Acuan rentang", "Status"]
 TODAY = datetime.now(ZoneInfo("Asia/Jakarta")).date()
-REFERENCE_REASON_20260928 = {
-    "Nikel": "Lemahnya permintaan downstream China dan tingginya inventori, di tengah kekhawatiran surplus pasokan global.",
-    "Brent Oil": "Kekhawatiran gangguan pasokan akibat konflik Timur Tengah dan ketidakpastian akses Selat Hormuz.",
-    "Coal": "Permintaan pembangkit listrik tetap kuat ketika harga LNG tinggi dan pasokan energi global terganggu.",
-    "Natural Gas": "Pasokan domestik AS relatif melimpah, sementara kenaikan kebutuhan LNG belum mengimbangi tekanan produksi.",
-}
 
 
 def world_bank_ranges():
@@ -169,6 +163,25 @@ def detail_market_fields(soup):
     return result
 
 
+def detail_update_date(text, label):
+    """Tanggal update pada bagian Stats komoditas yang sedang dibaca."""
+    match = re.search(
+        rf"{re.escape(LABELS[label])}\s*-\s*Stats\b(.+?){re.escape(LABELS[label])}\s*-\s*Forecast\b",
+        text, re.I | re.S,
+    )
+    if not match:
+        return None
+    dates = re.findall(r"last updated on\s+([A-Za-z]+\s+\d{1,2}(?:st|nd|rd|th)?\s+(?:of\s+)?\d{4})", match.group(1), re.I)
+    if not dates:
+        return None
+    normalized = re.sub(r"(\d{1,2})(?:st|nd|rd|th)\b", r"\1", dates[-1], flags=re.I)
+    normalized = re.sub(r"\s+of\s+", " ", normalized, flags=re.I)
+    try:
+        return datetime.strptime(normalized, "%B %d %Y").date()
+    except ValueError:
+        return None
+
+
 @st.cache_data(ttl=86400, show_spinner=False)
 def translate_summary(english):
     """Terjemahkan kutipan ringkas TE; cache teks yang sama agar hemat kuota gratis."""
@@ -232,10 +245,24 @@ def collect_public():
             detail = fetch_html(URL + path)
             text = detail.get_text(" ", strip=True)
             live_fields = detail_market_fields(detail)
-            if all(live_fields.get(k) for k in ("Latest Price", "Day %", "Month %", "Year %")):
-                data[label].update(live_fields)
+            required = ("Latest Price", "Day %", "Month %", "Year %")
+            if all(live_fields.get(k) for k in required):
+                detail_date = detail_update_date(text, label)
+                if detail_date:
+                    list_price = data[label]["Latest Price"]
+                    list_date = quote_date(data[label]["Waktu sumber"])
+                    data[label].update(live_fields)
+                    data[label]["Waktu sumber"] = detail_date.isoformat()
+                    if list_price and list_date == detail_date and abs(float(list_price) - float(live_fields["Latest Price"])) > max(0.01, float(live_fields["Latest Price"]) * 0.0001):
+                        data[label]["Status"] = "Harga daftar/detail berbeda; cek sumber"
+                    else:
+                        data[label]["Status"] = "Detail terverifikasi" if is_fresh(data[label]["Waktu sumber"]) else "Tanggal detail usang"
+                else:
+                    data[label]["Status"] = "Tanggal detail tidak terbaca; memakai daftar"
+            else:
+                data[label]["Status"] += "; detail tidak lengkap"
             yearly, summary = detail_fields(text, label)
-            if yearly and not data[label]["Year %"]:
+            if yearly and not data[label]["Year %"] and not data[label]["Latest Price"]:
                 data[label]["Year %"] = yearly
             if summary:
                 summaries[label] = summary
@@ -251,11 +278,10 @@ def collect_public():
                     data[label]["Reason"] = job.result()
                 except (requests.RequestException, ValueError, KeyError):
                     data[label]["Reason"] = "Terjemahan belum tersedia. Lihat penjelasan asli pada tautan sumber."
-    # Hanya untuk hari contoh yang diberikan pengguna; jangan teruskan angka lama ke hari berikutnya.
-    if TODAY.isoformat() == "2026-09-28":
-        for label in NAMES:
-            if not data[label]["Reason"]:
-                data[label]["Reason"] = "Contoh 28/09/2026: " + REFERENCE_REASON_20260928[label]
+    for label in NAMES:
+        if not data[label]["Reason"]:
+            data[label]["Reason"] = "Penjelasan sumber belum berhasil dibaca; periksa halaman komoditas."
+            data[label]["Link berita"] = URL + NAMES[label]
     return pd.DataFrame(data.values(), columns=COLS)
 
 
@@ -288,7 +314,13 @@ def preview(frame, period, lalang, pendalian, lalang_note, pendalian_note):
         try:
             low, high, price = [float(str(row[k]).replace(",", "")) for k in ("Low 1Y", "High 1Y", "Latest Price")]
             pos = max(0, min(100, 100 * (price - low) / (high - low))) if high > low else 0
-            marker = f'<span class="marker" style="left:{pos:.1f}%"></span>' if high > low else ""
+            if high > low:
+                label_pos = max(13, min(87, pos))
+                marker = (f'<span class="price-marker" style="left:{label_pos:.1f}%">'
+                          f'{fmt_price(price,row["Komoditas"])}</span>'
+                          f'<span class="marker" style="left:{pos:.1f}%"></span>')
+            else:
+                marker = ""
         except (TypeError, ValueError):
             marker = ""
         return f'<div class="rangebar">{marker}</div><div class="bounds"><span>{fmt_range(row["Low 1Y"],row["Komoditas"])}</span><span>{fmt_range(row["High 1Y"],row["Komoditas"])}</span></div>'
@@ -304,10 +336,10 @@ def preview(frame, period, lalang, pendalian, lalang_note, pendalian_note):
     for _, row in frame.iterrows():
         name = escape(str(row["Komoditas"]))
         link = escape(URL + NAMES[row["Komoditas"]], quote=True)
-        reason = escape(str(row["Reason"] or "—"))
+        reason = f'<span class="reason-text">{escape(str(row["Reason"] or "—"))}</span>'
         source_link = str(row["Link berita"] or "")
         if source_link.startswith("https://"):
-            reason += f'<br><small><a href="{escape(source_link, quote=True)}" target="_blank" rel="noopener noreferrer">Lihat penjelasan sumber</a></small>'
+            reason += f'<small class="reason-link"><a href="{escape(source_link, quote=True)}" target="_blank" rel="noopener noreferrer">Lihat penjelasan sumber</a></small>'
         lines.append(
             f'<tr><td class="name"><a href="{link}" target="_blank">{name}</a></td>'
             f'<td class="price">{fmt_price(row["Latest Price"], row["Komoditas"])}<small>{escape(str(row["Unit"] or ""))} · {escape(str(row["Waktu sumber"] or "tanggal belum ada"))}</small></td>'
@@ -325,8 +357,11 @@ def preview(frame, period, lalang, pendalian, lalang_note, pendalian_note):
     .report tbody tr {height:120px;background:#fffaf7}
     .report td.name {text-align:left;font-weight:bold}.report td.name a{color:#181818;text-decoration:none}
     .report td.price {font-weight:bold;font-size:18px}.report td.price small{display:block;font-size:12px;font-weight:normal}
-    .report td.reason{text-align:left;line-height:1.35;font-size:14px;white-space:pre-wrap}
-    .report .rangebar{height:12px;background:#f3f0eb;border:1px solid #d8cec7;position:relative;margin:12px 5px}
+    .report td.reason{line-height:1.35;font-size:14px;overflow-wrap:anywhere;vertical-align:middle}
+    .report td.reason .reason-text{display:block;text-align:justify;text-justify:inter-word;white-space:pre-line}
+    .report td.reason .reason-link{display:block;text-align:left;margin-top:6px}
+    .report .rangebar{height:12px;background:#f3f0eb;border:1px solid #d8cec7;position:relative;margin:38px 5px 12px}
+    .report .price-marker{position:absolute;top:-30px;transform:translateX(-50%);font-size:14px;font-weight:bold;color:#17657a;white-space:nowrap}
     .report .marker{position:absolute;background:#218497;height:25px;width:5px;top:-7px;transform:translateX(-50%)}
     .report .bounds{display:flex;justify-content:space-between;font-size:12px;color:#53606a}
     .report .icp td{text-align:left;height:34px;font-weight:bold}.report .icp td+td{text-align:center;font-weight:normal}
@@ -376,14 +411,40 @@ def png(frame, icp_period, lalang, pendalian, lalang_note, pendalian_note):
             try: color="#a51d1d" if float(row[key])<0 else "#276c2a"
             except (TypeError,ValueError): color="#333333"
             txt((edges[j+2]+edges[j+3])/2,bottom+103,fmt(row[key],True),9,False,color,"center")
-        reason_lines=fill(str(row["Reason"] or "—"),42,break_long_words=False).splitlines()
-        if len(reason_lines)>9:
-            reason_lines=reason_lines[:9]
-            reason_lines[-1]=reason_lines[-1].rstrip(" .,;") + "…"
-        reason_clip=Rectangle((edges[5]+8,bottom+14),edges[6]-edges[5]-16,170,transform=ax.transData)
+        # Bungkus sesuai lebar teks yang terukur, lalu ratakan tiap baris kecuali baris terakhir.
+        from matplotlib.font_manager import FontProperties
+        font = FontProperties(family="DejaVu Sans", size=9)
+        renderer = fig.canvas.get_renderer()
+        pixels_per_unit = ax.transData.transform((1, 0))[0] - ax.transData.transform((0, 0))[0]
+        width = edges[6] - edges[5] - 26
+        def measure(s):
+            return renderer.get_text_width_height_descent(s, font, ismath=False)[0] / pixels_per_unit
+        words = str(row["Reason"] or "—").split()
+        reason_lines, current = [], []
+        for word in words:
+            if current and measure(" ".join(current + [word])) > width:
+                reason_lines.append(current)
+                current = []
+            current.append(word)
+        if current:
+            reason_lines.append(current)
+        if len(reason_lines) > 9:
+            reason_lines = reason_lines[:9]
+            last = reason_lines[-1]
+            while last and measure(" ".join(last) + "…") > width:
+                last.pop()
+            reason_lines[-1] = last + ["…"]
+        reason_clip=Rectangle((edges[5]+10,bottom+12),edges[6]-edges[5]-20,171,transform=ax.transData)
+        start_y = bottom + 97 + (len(reason_lines) - 1) * 9
         for k,line in enumerate(reason_lines):
-            label= ax.text(758,bottom+177-k*18,line,fontsize=9,color="#181818",ha="left",va="center",family="DejaVu Sans")
-            label.set_clip_path(reason_clip)
+            y = start_y - k * 18
+            gaps = len(line) - 1
+            extra = (width - sum(measure(word) for word in line)) / gaps if gaps and k < len(reason_lines)-1 else measure(" ")
+            x = edges[5] + 13
+            for word in line:
+                label = ax.text(x,y,word,fontsize=9,color="#181818",ha="left",va="center",family="DejaVu Sans")
+                label.set_clip_path(reason_clip)
+                x += measure(word) + extra
         low,high,price=[row[k] for k in ["Low 1Y","High 1Y","Latest Price"]]
         txt(1204,bottom+54,fmt_range(low,row["Komoditas"]),11)
         txt(1757,bottom+54,fmt_range(high,row["Komoditas"]),11,align="right")
@@ -461,7 +522,11 @@ if first_load or refresh_clicked:
         st.session_state.auto_reason = generated_reason
         st.session_state.editor_revision += 1
         st.session_state.last_refresh = datetime.now(ZoneInfo("Asia/Jakarta")).strftime("%d/%m/%Y %H:%M GMT+7")
-        st.success("Pembacaan selesai. Periksa tanggal sumber harga harian dan periode World Bank sebelum mengunduh.")
+        flagged = new[new["Status"].str.contains("berbeda|tidak lengkap|tidak terbaca|usang", case=False, na=False)]
+        if not flagged.empty:
+            st.warning("Perlu cek langsung pada sumber: " + ", ".join(f'{r["Komoditas"]} ({r["Status"]})' for _, r in flagged.iterrows()))
+        else:
+            st.success("Pembacaan selesai. Periksa tanggal sumber harga harian dan periode World Bank sebelum mengunduh.")
     except (requests.RequestException, ValueError) as exc:
         st.warning(f"Halaman publik tidak dapat dibaca sekarang: {exc}. Isi tabel secara manual.")
 
@@ -496,14 +561,15 @@ with st.expander("Sumber dan status pembacaan"):
 
 timestamp = datetime.now(ZoneInfo("Asia/Jakarta")).strftime("%Y%m%d")
 invalid = [str(row["Komoditas"]) for _,row in edited.iterrows()
-           if not row["Latest Price"] or not is_fresh(row["Waktu sumber"])]
+           if not row["Latest Price"] or not is_fresh(row["Waktu sumber"])
+           or "berbeda" in str(row["Status"]).lower()]
 invalid_range = [str(row["Komoditas"]) for _, row in edited.iterrows()
                  if not row["Low 1Y"] or not row["High 1Y"]]
 missing_year = [str(row["Komoditas"]) for _,row in edited.iterrows() if not row["Year %"]]
 if missing_year:
     st.warning("Year % belum terambil untuk: " + ", ".join(missing_year) + ". Isi setelah mencocokkan halaman detail sumber.")
 if invalid:
-    st.warning("Harga kosong atau lebih dari satu hari perdagangan sejak tanggal sumber: " + ", ".join(invalid))
+    st.warning("Harga kosong, tanggal sumber sudah lama, atau harga daftar/detail berbeda: " + ", ".join(invalid))
 if invalid_range:
     st.warning("Rentang bulanan belum terisi untuk: " + ", ".join(invalid_range) + ". Lengkapi dan tulis periode acuannya sebelum mengunduh PNG.")
 if invalid or invalid_range:
