@@ -164,17 +164,18 @@ def detail_market_fields(soup):
 
 
 def detail_update_date(text, label):
-    """Tanggal update pada bagian Stats komoditas yang sedang dibaca."""
+    """Tanggal *kutipan harga* pada Stats, bukan tanggal halaman terakhir diedit."""
     match = re.search(
         rf"{re.escape(LABELS[label])}\s*-\s*Stats\b(.+?){re.escape(LABELS[label])}\s*-\s*Forecast\b",
         text, re.I | re.S,
     )
     if not match:
         return None
-    dates = re.findall(r"last updated on\s+([A-Za-z]+\s+\d{1,2}(?:st|nd|rd|th)?\s+(?:of\s+)?\d{4})", match.group(1), re.I)
+    stats = match.group(1).split("Historically", 1)[0]
+    dates = re.findall(r"\b(?:rose|fell|climbed|dropped|declined|increased|decreased|traded|stood)\b.{0,120}?\bon\s+([A-Za-z]+\s+\d{1,2}(?:st|nd|rd|th)?,?\s+(?:of\s+)?\d{4})", stats, re.I)
     if not dates:
         return None
-    normalized = re.sub(r"(\d{1,2})(?:st|nd|rd|th)\b", r"\1", dates[-1], flags=re.I)
+    normalized = re.sub(r"(\d{1,2})(?:st|nd|rd|th)\b", r"\1", dates[0], flags=re.I).replace(",", "")
     normalized = re.sub(r"\s+of\s+", " ", normalized, flags=re.I)
     try:
         return datetime.strptime(normalized, "%B %d %Y").date()
@@ -256,7 +257,10 @@ def collect_public():
                     if list_price and list_date == detail_date and abs(float(list_price) - float(live_fields["Latest Price"])) > max(0.01, float(live_fields["Latest Price"]) * 0.0001):
                         data[label]["Status"] = "Harga daftar/detail berbeda; cek sumber"
                     else:
-                        data[label]["Status"] = "Detail terverifikasi" if is_fresh(data[label]["Waktu sumber"]) else "Tanggal detail usang"
+                        if detail_date < TODAY:
+                            data[label]["Status"] = "Kutipan terakhir " + detail_date.strftime("%d/%m/%Y") + "; belum ada harga baru"
+                        else:
+                            data[label]["Status"] = "Detail terverifikasi" if is_fresh(data[label]["Waktu sumber"]) else "Tanggal detail usang"
                 else:
                     data[label]["Status"] = "Tanggal detail tidak terbaca; memakai daftar"
             else:
@@ -522,7 +526,7 @@ if first_load or refresh_clicked:
         st.session_state.auto_reason = generated_reason
         st.session_state.editor_revision += 1
         st.session_state.last_refresh = datetime.now(ZoneInfo("Asia/Jakarta")).strftime("%d/%m/%Y %H:%M GMT+7")
-        flagged = new[new["Status"].str.contains("berbeda|tidak lengkap|tidak terbaca|usang", case=False, na=False)]
+        flagged = new[new["Status"].str.contains("berbeda|tidak lengkap|tidak terbaca|usang|belum ada harga baru", case=False, na=False)]
         if not flagged.empty:
             st.warning("Perlu cek langsung pada sumber: " + ", ".join(f'{r["Komoditas"]} ({r["Status"]})' for _, r in flagged.iterrows()))
         else:
