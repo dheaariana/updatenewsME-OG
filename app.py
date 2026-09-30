@@ -138,6 +138,10 @@ def detail_update_date(text, label):
         return None
 
 
+def compact_dollars(value):
+    return re.sub(r"\$\s+(?=\d)", "$", str(value or ""))
+
+
 @st.cache_data(ttl=86400, show_spinner=False)
 def translate_summary(english):
     """Terjemahkan kutipan ringkas TE; cache teks yang sama agar hemat kuota gratis."""
@@ -150,7 +154,7 @@ def translate_summary(english):
     translated = unescape(str(payload.get("responseData", {}).get("translatedText", ""))).strip()
     if payload.get("quotaFinished") or payload.get("responseStatus") != 200 or not translated or translated.casefold() == english.casefold():
         raise ValueError("Layanan terjemahan tidak memberikan hasil bahasa Indonesia")
-    return translated
+    return compact_dollars(translated)
 
 
 def collect_public():
@@ -305,7 +309,7 @@ def preview(frame, period, lalang, pendalian, lalang_note, pendalian_note):
     for _, row in frame.iterrows():
         name = escape(str(row["Komoditas"]))
         link = escape(URL + NAMES[row["Komoditas"]], quote=True)
-        reason = f'<span class="reason-text">{escape(str(row["Reason"] or "—"))}</span>'
+        reason = f'<span class="reason-text">{escape(compact_dollars(row["Reason"] or "—"))}</span>'
         source_link = str(row["Link berita"] or "")
         if source_link.startswith("https://"):
             reason += f'<small class="reason-link"><a href="{escape(source_link, quote=True)}" target="_blank" rel="noopener noreferrer">Lihat penjelasan sumber</a></small>'
@@ -392,7 +396,7 @@ def png(frame, icp_period, lalang, pendalian, lalang_note, pendalian_note):
         width = edges[6] - edges[5] - 26
         def measure(s):
             return renderer.get_text_width_height_descent(s, font, ismath=False)[0] / pixels_per_unit
-        words = str(row["Reason"] or "—").split()
+        words = compact_dollars(row["Reason"] or "—").split()
         reason_lines, current = [], []
         for word in words:
             if current and measure(" ".join(current + [word])) > width:
@@ -506,6 +510,7 @@ with st.expander("✏️ Isi Low–High TE 1 Year, tanggal cek, dan edit laporan
                        "Tanggal cek Low-High": st.column_config.TextColumn("Tanggal cek Low-High (YYYY-MM-DD)")},
         key=f"editor_{st.session_state.editor_revision}",
     )
+    edited["Reason"] = edited["Reason"].map(compact_dollars)
     st.session_state.frame = edited
     st.caption("Isi Low 1Y dan High 1Y dari angka terverifikasi pada seri TE yang sama, periode 1 Year; jangan memakai label sumbu grafik sebagai titik ekstrem. Isi tanggal cek dengan YYYY-MM-DD. Angka manual tetap tersimpan selama sesi meskipun harga diperbarui.")
 
@@ -564,8 +569,7 @@ if missing_year:
     st.warning("Year % belum terambil untuk: " + ", ".join(missing_year) + ". Isi setelah mencocokkan halaman detail sumber.")
 if invalid:
     st.warning("Harga kosong, tanggal sumber sudah lama, atau harga daftar/detail berbeda: " + ", ".join(invalid))
-if invalid_range:
-    st.warning("Low–High atau tanggal cek perlu diperiksa untuk: " + ", ".join(invalid_range) + ". Isi rentang valid yang mencakup harga terbaru dan tanggal cek hari ini sebelum mengunduh PNG.")
+
 if invalid:
     manual_verified = st.checkbox("Saya sudah melengkapi dan memeriksa angka, tanggal harga, serta periode rentang pada sumbernya")
 else:
