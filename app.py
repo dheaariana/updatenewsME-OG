@@ -492,6 +492,8 @@ if first_load or refresh_clicked:
         st.session_state.editor_revision += 1
         st.session_state.last_refresh = datetime.now(ZoneInfo("Asia/Jakarta")).strftime("%d/%m/%Y %H:%M GMT+7")
         flagged = new[new["Status"].str.contains("berbeda|tidak lengkap|tidak terbaca|usang|belum ada harga baru", case=False, na=False)]
+        coal_no_new_quote = (flagged["Komoditas"].eq("Coal") & flagged["Status"].str.contains("belum ada harga baru", case=False, na=False))
+        flagged = flagged[~coal_no_new_quote]
         if not flagged.empty:
             st.warning("Perlu cek langsung pada sumber: " + ", ".join(f'{r["Komoditas"]} ({r["Status"]})' for _, r in flagged.iterrows()))
         else:
