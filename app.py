@@ -11,7 +11,8 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import pandas as pd
-import openpyxl
+import json
+import math
 import requests
 from bs4 import BeautifulSoup
 import streamlit as st
@@ -21,11 +22,6 @@ st.title("Perubahan Harga Komoditas")
 st.caption("Tabel laporan harian · Sumber harga: halaman publik Trading Economics")
 
 URL = "https://tradingeconomics.com"
-WB_URL = "https://thedocs.worldbank.org/en/doc/74e8be41ceb20fa0da750cda2f6b9e4e-0050012026/related/CMO-Historical-Data-Monthly.xlsx"
-WB_SERIES = {
-    "Nikel": "Nickel", "Brent Oil": "Crude oil, Brent",
-    "Coal": "Coal, Australian", "Natural Gas": "Natural gas, US",
-}
 NAMES = {
     "Nikel": "/commodity/nickel",
     "Brent Oil": "/commodity/brent-crude-oil",
@@ -35,49 +31,8 @@ NAMES = {
 LABELS = {"Nikel": "nickel", "Brent Oil": "brent oil", "Coal": "coal", "Natural Gas": "natural gas"}
 HEADERS = {"User-Agent": "Mozilla/5.0 (compatible; personal commodity report)"}
 COLS = ["Komoditas", "Latest Price", "Unit", "Day %", "Month %", "Year %",
-        "Low 1Y", "High 1Y", "Reason", "Link berita", "Waktu sumber", "Acuan rentang", "Status"]
+        "Low 1Y", "High 1Y", "Reason", "Link berita", "Waktu sumber", "Acuan rentang", "Tanggal cek Low-High", "Status"]
 TODAY = datetime.now(ZoneInfo("Asia/Jakarta")).date()
-
-
-def world_bank_ranges():
-    """Rentang min/max dari 12 harga rata-rata bulanan terakhir, bukan 52-week high/low harian."""
-    response = requests.get(WB_URL, headers=HEADERS, timeout=35)
-    response.raise_for_status()
-    workbook = openpyxl.load_workbook(BytesIO(response.content), read_only=True, data_only=True)
-    try:
-        sheet = workbook["Monthly Prices"]
-        rows = sheet.iter_rows(values_only=True)
-        for _ in range(4):
-            next(rows)
-        headers = next(rows)
-        columns = {label: headers.index(series) for label, series in WB_SERIES.items()}
-        monthly = []
-        for row in rows:
-            period = row[0]
-            if not isinstance(period, str) or not re.fullmatch(r"\d{4}M(?:0[1-9]|1[0-2])", period):
-                continue
-            year, month = int(period[:4]), int(period[5:])
-            if (year, month) > (TODAY.year, TODAY.month):
-                continue
-            monthly.append((period, row))
-        if len(monthly) < 12:
-            raise ValueError("Kurang dari 12 bulan harga World Bank tersedia")
-        window = monthly[-12:]
-        first_period, last_period = window[0][0], window[-1][0]
-        first_index = int(first_period[:4]) * 12 + int(first_period[5:])
-        last_index = int(last_period[:4]) * 12 + int(last_period[5:])
-        if last_index - first_index != 11 or TODAY.year * 12 + TODAY.month - last_index > 2:
-            raise ValueError("Periode World Bank tidak lengkap atau belum diperbarui")
-        results = {}
-        for label, column in columns.items():
-            values = [row[column] for _, row in window]
-            if any(not isinstance(value, (int, float)) for value in values):
-                raise ValueError(f"Seri {label} tidak lengkap selama 12 bulan")
-            results[label] = (min(values), max(values))
-        period_label = f"WB bulanan {first_period}–{last_period}"
-        return results, period_label
-    finally:
-        workbook.close()
 
 
 def quote_date(raw):
@@ -317,6 +272,10 @@ def preview(frame, period, lalang, pendalian, lalang_note, pendalian_note):
     def bar(row):
         try:
             low, high, price = [float(str(row[k]).replace(",", "")) for k in ("Low 1Y", "High 1Y", "Latest Price")]
+            if not (math.isfinite(low) and math.isfinite(high) and math.isfinite(price) and 0 < low < high):
+                return '<div>Low–High belum valid</div>'
+            if not low <= price <= high:
+                return '<div>Periksa kembali Low–High TE</div>'
             if high > low:
                 axis_low, axis_high = min(low, price), max(high, price)
                 pct = lambda value: 100 * (value - axis_low) / (axis_high - axis_low)
@@ -382,7 +341,7 @@ def preview(frame, period, lalang, pendalian, lalang_note, pendalian_note):
     </style>"""
     html += '<table class="report"><colgroup><col style="width:14%"><col style="width:15%"><col style="width:6%"><col style="width:6%"><col style="width:6%"><col style="width:29%"><col style="width:24%"></colgroup>'
     html += f'<thead><tr><th colspan="7" class="title">Changes in Commodity Prices<small>Source: tradingeconomics.com · Updated: {datetime.now(ZoneInfo("Asia/Jakarta")):%d/%m/%Y %H:%M} GMT+7</small></th></tr>'
-    html += '<tr class="heading"><th>Komoditas</th><th>Latest Price</th><th colspan="3">%Chg</th><th rowspan="2">Reason</th><th rowspan="2">Rentang Rata-rata Bulanan (12 Bulan)</th></tr>'
+    html += '<tr class="heading"><th>Komoditas</th><th>Latest Price</th><th colspan="3">%Chg</th><th rowspan="2">Reason</th><th rowspan="2">Low–High (1 Year)</th></tr>'
     html += '<tr class="heading"><th></th><th></th><th>Day</th><th>Month</th><th>Year</th></tr></thead>'
     html += '<tbody>'+''.join(lines)+'</tbody>'
     html += f'<tr><th colspan="7" class="green">Indonesian Crude Price (per {escape(period or "periode belum diisi")})<br><small>Source: Kementerian ESDM, updated monthly</small></th></tr>'
@@ -407,7 +366,7 @@ def png(frame, icp_period, lalang, pendalian, lalang_note, pendalian_note):
     txt(900,1037,"Changes in Commodity Prices",19,True,"white","center")
     txt(900,1010,f"Source: tradingeconomics.com · laporan dibuat {datetime.now(ZoneInfo('Asia/Jakarta')):%d/%m/%Y %H:%M} GMT+7",9,False,"white","center")
     rect(30,935,1740,65,"#699ce4")
-    for j,title in enumerate(["Komoditas","Latest Price","Day","Month","Year","Reason","Rentang Rata-rata Bulanan\n(12 Bulan)"]):
+    for j,title in enumerate(["Komoditas","Latest Price","Day","Month","Year","Reason","Low–High (1 Year)"]):
         if j == 5: x0,x1=edges[5],edges[6]
         elif j == 6: x0,x1=edges[6],edges[7]
         else: x0,x1=edges[j],edges[j+1]
@@ -462,7 +421,7 @@ def png(frame, icp_period, lalang, pendalian, lalang_note, pendalian_note):
         low,high,price=[row[k] for k in ["Low 1Y","High 1Y","Latest Price"]]
         try:
             low,high,price=[float(v) for v in (low,high,price)]
-            if high>low:
+            if math.isfinite(low) and math.isfinite(high) and math.isfinite(price) and 0 < low < high and low <= price <= high:
                 axis_low,axis_high=min(low,price),max(high,price)
                 x_of=lambda value:1207+(value-axis_low)/(axis_high-axis_low)*544
                 low_x,high_x,marker_x=x_of(low),x_of(high),x_of(price)
@@ -474,7 +433,10 @@ def png(frame, icp_period, lalang, pendalian, lalang_note, pendalian_note):
                 ax.add_patch(Rectangle((marker_x-3,bottom+88),6,34,color="#218497"))
                 label_x=max(1260,min(1700,marker_x))
                 txt(label_x,bottom+146,fmt_price(price,row["Komoditas"]),11,True,"#17657a","center")
-        except (TypeError,ValueError): pass
+            else:
+                txt(1480,bottom+103,"Periksa Low–High TE",12,align="center")
+        except (TypeError,ValueError):
+            txt(1480,bottom+103,"Low–High belum diisi",12,align="center")
     rect(30,108,1740,47,"#67a44f")
     txt(900,132,f"Indonesian Crude Price (per {icp_period or 'periode belum diisi'})",17,True,"white","center")
     rect(30,75,1740,33,"#a1cf90")
@@ -500,7 +462,7 @@ if first_load:
     st.session_state.frame = pd.DataFrame([{
         "Komoditas": name, "Latest Price": "", "Unit": "", "Day %": "", "Month %": "", "Year %": "",
         "Low 1Y": "", "High 1Y": "",
-        "Reason": "", "Link berita": "", "Waktu sumber": "", "Acuan rentang": "Belum diambil", "Status": "Belum diambil"
+        "Reason": "", "Link berita": "", "Waktu sumber": "", "Acuan rentang": "TE 1 Year · input manual", "Tanggal cek Low-High": "", "Status": "Belum diambil"
     } for name in NAMES], columns=COLS)
     st.session_state.editor_revision = 0
     st.session_state.auto_reason = {}
@@ -514,21 +476,11 @@ if first_load or refresh_clicked:
     old = st.session_state.frame.set_index("Komoditas")
     try:
         new = collect_public()
-        try:
-            ranges, range_period = world_bank_ranges()
-        except (requests.RequestException, ValueError, KeyError, OSError, openpyxl.utils.exceptions.InvalidFileException) as exc:
-            ranges, range_period = {}, "World Bank gagal dibaca"
-            st.warning(f"Rentang bulanan World Bank belum bisa diperbarui: {exc}")
         generated_reason = {record["Komoditas"]: record["Reason"] for _, record in new.iterrows()}
         for i, record in new.iterrows():
             label = record["Komoditas"]
-            if label in ranges:
-                new.at[i, "Low 1Y"], new.at[i, "High 1Y"] = ranges[label]
-                new.at[i, "Acuan rentang"] = range_period
-            else:
-                new.at[i, "Low 1Y"] = ""
-                new.at[i, "High 1Y"] = ""
-                new.at[i, "Acuan rentang"] = range_period
+            for field in ("Low 1Y", "High 1Y", "Acuan rentang", "Tanggal cek Low-High"):
+                new.at[i, field] = old.at[label, field]
             old_reason = str(old.at[label, "Reason"] or "")
             auto_prefixes = ("Konteks pasar TE:", "Ringkasan TE (terjemahan otomatis):", "Terjemahan belum tersedia.", "Contoh 28/09/2026:")
             if old_reason and old_reason != st.session_state.auto_reason.get(label) and not old_reason.startswith(auto_prefixes):
@@ -543,23 +495,24 @@ if first_load or refresh_clicked:
         if not flagged.empty:
             st.warning("Perlu cek langsung pada sumber: " + ", ".join(f'{r["Komoditas"]} ({r["Status"]})' for _, r in flagged.iterrows()))
         else:
-            st.success("Pembacaan selesai. Periksa tanggal sumber harga harian dan periode World Bank sebelum mengunduh.")
+            st.success("Pembacaan selesai. Periksa tanggal harga dan tanggal pemeriksaan Low–High TE sebelum mengunduh.")
     except (requests.RequestException, ValueError) as exc:
         st.warning(f"Halaman publik tidak dapat dibaca sekarang: {exc}. Isi tabel secara manual.")
 
 if "last_refresh" in st.session_state:
-    st.caption(f"Terakhir dibaca aplikasi: {st.session_state.last_refresh}. Tanggal harga per komoditas dan periode World Bank tertera di tabel.")
+    st.caption(f"Terakhir dibaca aplikasi: {st.session_state.last_refresh}. Tanggal harga per komoditas tertera di tabel.")
 
-with st.expander("✏️ Edit angka, rentang bulanan, alasan dan tautan berita"):
+with st.expander("✏️ Isi Low–High TE 1 Year, tanggal cek, dan edit laporan"):
     edited = st.data_editor(
         st.session_state.frame, hide_index=True, use_container_width=True,
-        disabled=["Komoditas", "Status"],
+        disabled=["Komoditas", "Status", "Acuan rentang"],
         column_config={"Reason": st.column_config.TextColumn("Reason", width="large"),
-                       "Link berita": st.column_config.LinkColumn("Link berita")},
+                       "Link berita": st.column_config.LinkColumn("Link berita"),
+                       "Tanggal cek Low-High": st.column_config.TextColumn("Tanggal cek Low-High (YYYY-MM-DD)")},
         key=f"editor_{st.session_state.editor_revision}",
     )
     st.session_state.frame = edited
-    st.caption("Low–High berasal dari 12 rata-rata harga bulanan World Bank, bukan titik ekstrem harga harian. Reason berbahasa Indonesia berdasarkan ringkasan TE; tautan sumber tersedia untuk ditinjau.")
+    st.caption("Isi Low 1Y dan High 1Y dari angka terverifikasi pada seri TE yang sama, periode 1 Year; jangan memakai label sumbu grafik sebagai titik ekstrem. Isi tanggal cek dengan YYYY-MM-DD. Angka manual tetap tersimpan selama sesi meskipun harga diperbarui.")
 
 with st.expander("✏️ Isi ICP bulanan"):
     icp_period = st.text_input("Periode", value="Agustus 2026")
@@ -569,30 +522,59 @@ with st.expander("✏️ Isi ICP bulanan"):
     lalang_note = st.text_input("Notes Lalang", value="Ref. untuk debitur a.n ITA")
     pendalian_note = st.text_input("Notes Pendalian", value="Ref. untuk debitur a.n APG West Kampar")
 
-st.caption(f"Low–High: 12 rata-rata bulanan dari [World Bank Pink Sheet]({WB_URL}); harga harian: Trading Economics. Seri World Bank dapat berbeda dari instrumen harga harian, sehingga penanda harga bisa di luar rentang bulanan. ICP masih contoh Agustus 2026 dan perlu diisi saat rilis baru.")
+st.caption("Low–High (1 Year): input manual dari Trading Economics. Harga, perubahan, dan ringkasan dibaca dari halaman publik jika tersedia. ICP masih contoh dan perlu diperbarui manual.")
+with st.expander("💾 Simpan / pulihkan Low–High"):
+    saved = [{k: str(row.get(k, "")) for k in ("Komoditas", "Low 1Y", "High 1Y", "Tanggal cek Low-High")} for _, row in edited.iterrows()]
+    st.download_button("Unduh pengaturan Low–High", json.dumps(saved, ensure_ascii=False, indent=2), "low_high_te.json", "application/json")
+    uploaded = st.file_uploader("Unggah pengaturan yang pernah disimpan", type=["json"])
+    if uploaded is not None and st.button("Terapkan pengaturan"):
+        try:
+            records = json.load(uploaded)
+            restored = edited.copy()
+            if not isinstance(records, list): raise ValueError("Format pengaturan harus berupa daftar")
+            for record in records:
+                if record["Komoditas"] not in NAMES: raise ValueError("Komoditas tidak dikenal")
+                lo, hi = float(record["Low 1Y"]), float(record["High 1Y"])
+                date = datetime.strptime(record["Tanggal cek Low-High"], "%Y-%m-%d").date()
+                if not (math.isfinite(lo) and math.isfinite(hi) and 0 < lo < hi) or date > TODAY:
+                    raise ValueError("Angka atau tanggal cek tidak valid")
+                mask = restored["Komoditas"] == record["Komoditas"]
+                for field in ("Low 1Y", "High 1Y", "Tanggal cek Low-High"):
+                    restored.loc[mask, field] = record[field]
+            st.session_state.frame = restored
+            st.session_state.editor_revision += 1
+            st.rerun()
+        except (ValueError, KeyError, TypeError) as exc:
+            st.error(f"Pengaturan tidak dapat dipakai: {exc}")
 
 st.markdown("### Tampilan laporan")
 st.markdown(preview(edited, icp_period, lalang, pendalian, lalang_note, pendalian_note), unsafe_allow_html=True)
 with st.expander("Sumber dan status pembacaan"):
-    st.dataframe(edited[["Komoditas", "Waktu sumber", "Status", "Link berita"]], hide_index=True, use_container_width=True)
+    st.dataframe(edited[["Komoditas", "Waktu sumber", "Tanggal cek Low-High", "Acuan rentang", "Status", "Link berita"]], hide_index=True, use_container_width=True)
 
 timestamp = datetime.now(ZoneInfo("Asia/Jakarta")).strftime("%Y%m%d")
 invalid = [str(row["Komoditas"]) for _,row in edited.iterrows()
            if not row["Latest Price"] or not is_fresh(row["Waktu sumber"])
            or "berbeda" in str(row["Status"]).lower()]
-invalid_range = [str(row["Komoditas"]) for _, row in edited.iterrows()
-                 if not row["Low 1Y"] or not row["High 1Y"]]
+def range_valid(row):
+    try:
+        lo, hi, price = (float(str(row[k]).replace(",", "")) for k in ("Low 1Y", "High 1Y", "Latest Price"))
+        checked = datetime.strptime(str(row["Tanggal cek Low-High"]), "%Y-%m-%d").date()
+        return all(math.isfinite(v) for v in (lo, hi, price)) and 0 < lo < hi and lo <= price <= hi and checked == TODAY
+    except (ValueError, TypeError, KeyError):
+        return False
+invalid_range = [str(row["Komoditas"]) for _, row in edited.iterrows() if not range_valid(row)]
 missing_year = [str(row["Komoditas"]) for _,row in edited.iterrows() if not row["Year %"]]
 if missing_year:
     st.warning("Year % belum terambil untuk: " + ", ".join(missing_year) + ". Isi setelah mencocokkan halaman detail sumber.")
 if invalid:
     st.warning("Harga kosong, tanggal sumber sudah lama, atau harga daftar/detail berbeda: " + ", ".join(invalid))
 if invalid_range:
-    st.warning("Rentang bulanan belum terisi untuk: " + ", ".join(invalid_range) + ". Lengkapi dan tulis periode acuannya sebelum mengunduh PNG.")
-if invalid or invalid_range:
+    st.warning("Low–High atau tanggal cek perlu diperiksa untuk: " + ", ".join(invalid_range) + ". Isi rentang valid yang mencakup harga terbaru dan tanggal cek hari ini sebelum mengunduh PNG.")
+if invalid:
     manual_verified = st.checkbox("Saya sudah melengkapi dan memeriksa angka, tanggal harga, serta periode rentang pada sumbernya")
 else:
     manual_verified = True
-st.download_button("⬇️ Unduh PNG", png(edited, icp_period, lalang, pendalian, lalang_note, pendalian_note) if manual_verified else b"",
-                   f"komoditas_{timestamp}.png", "image/png", disabled=not manual_verified)
+st.download_button("⬇️ Unduh PNG", png(edited, icp_period, lalang, pendalian, lalang_note, pendalian_note) if manual_verified and not invalid_range else b"",
+                   f"komoditas_{timestamp}.png", "image/png", disabled=not manual_verified or bool(invalid_range))
 st.download_button("⬇️ Unduh CSV", edited.to_csv(index=False).encode("utf-8-sig"), f"komoditas_{timestamp}.csv", "text/csv")

@@ -1,22 +1,13 @@
-# Dashboard komoditas gratis (Streamlit)
+# Dashboard Komoditas v21
 
-Unggah `app.py` dan `requirements.txt` ke GitHub, lalu deploy `app.py` di Streamlit Community Cloud. Tidak memerlukan API key atau Streamlit Secrets.
+Jalankan `pip install -r requirements.txt` lalu `streamlit run app.py`.
+Untuk Streamlit Community Cloud: unggah app.py dan requirements.txt ke GitHub, pilih app.py sebagai main file. Tidak memerlukan API key.
 
-Saat halaman dibuka ulang, aplikasi langsung membaca data publik. Klik **🔄 Ambil dari halaman publik** untuk memaksa pembacaan baru tanpa membuka ulang halaman. Aplikasi membaca harga dan perubahan dari header halaman detail Trading Economics; teks konteks pasar juga dibaca ulang, tetapi bisa tetap sama bila Trading Economics belum mengubahnya. Tabel edit direset setelah pembacaan berhasil agar nilai lama tidak menimpa nilai baru. Aplikasi kemudian mengunduh berkas **World Bank Pink Sheet bulanan** dan menghitung nilai terendah serta tertinggi dari **12 rata-rata harga bulanan terbaru** untuk Nikel, Brent, Coal Australia, dan Natural Gas AS.
+1. Klik Ambil dari halaman publik. Harga, persentase perubahan, dan Reason diambil jika halaman TE dapat dibaca. Scraping tidak menjamin data real time; periksa tanggal sumber dan status.
+2. Buka Isi Low–High. Isi Low 1Y dan High 1Y terverifikasi dari seri TE yang sama untuk periode 1 Year. Label sumbu grafik bukan angka minimum/maksimum yang pasti. Jangan menebak angkanya.
+3. Isi Tanggal cek Low-High format YYYY-MM-DD, sesuai hari pemeriksaan. Cek ulang tiap laporan harian.
+4. Low–High tidak tertimpa saat klik Ambil dari halaman publik. Grafik hanya ditampilkan jika harga berada dalam rentang valid. Jika harga keluar, periksa ulang rentang; aplikasi tidak mengubah High mengikuti Latest Price.
+5. Unduh pengaturan Low–High sebagai JSON untuk dipakai ulang setelah sesi berakhir. Unggah kembali dan klik Terapkan pengaturan.
+6. Unduh PNG setelah rentang valid dan tanggal cek hari ini terisi untuk semua komoditas. CSV tetap dapat diunduh untuk penyimpanan.
 
-Harga dan Day/Month/Year dari halaman detail dipakai bersama hanya bila keempatnya lengkap dan tanggal kutipan harga pada bagian Stats dapat dibaca. Jika halaman detail tidak lengkap, angka tabel daftar tetap digunakan dan status memperingatkan pengguna. Jika harga daftar dan detail berbeda pada tanggal yang sama, status meminta pemeriksaan manual sebelum PNG diunduh. Harga pada halaman publik dapat berubah di tengah proses pembacaan beberapa halaman; pemeriksaan ini tidak menjamin kesamaan detik demi detik.
-Tanggal yang ditampilkan untuk harga adalah tanggal kutipan pada Stats, bukan tulisan "last updated" pada halaman. Jika kutipan terakhir lebih lama dari hari ini, status menunjukkan bahwa harga baru belum tersedia; menekan tombol pembaruan tidak dapat membuat sumber menerbitkan harga baru.
-
-Rentang tersebut **bukan** titik Low–High 52 minggu pada grafik harian Trading Economics. Instrumen, metode, dan waktunya dapat berbeda. Judul tabel adalah "Rentang Rata-rata Bulanan (12 Bulan)"; sumber dan metode perhitungan tetap dijelaskan pada keterangan aplikasi. Harga harian memiliki tanggal sumber tersendiri. Jika file gagal dibaca atau 12 bulan tidak lengkap, kolom rentang dikosongkan dan peringatan muncul. Aplikasi tidak menyamarkan angka contoh sebagai pembaruan.
-
-ICP Lalang dan Pendalian masih nilai awal dari contoh Agustus 2026. Perbarui angka dan periode setelah publikasi ESDM terbaru. Ringkasan pasar dapat diedit setelah ditinjau; alasan yang diedit manual dipertahankan pada pembacaan berikutnya.
-
-**Reason** diterjemahkan otomatis dari ringkasan halaman detail Trading Economics ke bahasa Indonesia melalui layanan terjemahan MyMemory (tanpa API key). Teks ringkasan publik dikirim ke layanan tersebut, lalu hasil untuk teks yang sama disimpan sementara agar tidak menghabiskan kuota tiap refresh. Tautan penjelasan asli bisa diklik pada tabel. Jika layanan terjemahan gagal atau kuotanya habis, aplikasi memberi status "Terjemahan belum tersedia" dan tautan sumber tetap ada. Tinjau terjemahan sebelum memakai laporan resmi; jika Trading Economics belum mengubah ringkasannya, Reason juga tidak berubah meskipun harga bergerak.
-
-Tabel dan hasil PNG menampilkan empat komoditas, perubahan harga, Reason, rentang bulanan 12 bulan, dan ICP. Harga yang kosong atau tanggal yang terlalu lama akan menonaktifkan unduhan PNG hingga pengguna memeriksa dan mengonfirmasi. Harga publik dapat tertunda; waktu membuat laporan tidak sama dengan waktu harga diperbarui.
-
-Sumber rentang: https://thedocs.worldbank.org/en/doc/74e8be41ceb20fa0da750cda2f6b9e4e-0050012026/world-bank-commodities-price-data-the-pink-sheet
-
-Sumber harga harian: https://tradingeconomics.com/commodities
-
-Jika harga harian di luar rentang 12 rata-rata bulanan, skala grafik meluas hingga harga terbaru. Seluruh batang memakai warna seragam tanpa area putih. Dua garis tipis menunjukkan batas rendah–tinggi World Bank; angka batas tidak diubah. Garis biru menunjukkan harga Trading Economics pada skalanya.
+Kolom Low–High memakai input manual TE; tidak memakai World Bank. Harga terbaru dan Reason tetap bersumber dari halaman publik. Ini pembaruan sebagian otomatis, bukan akses API historis gratis. ICP merupakan contoh yang perlu diedit.
