@@ -138,6 +138,60 @@ def detail_update_date(text, label):
         return None
 
 
+RANGE_FIELDS = ("Komoditas", "Low 1Y", "High 1Y", "Tanggal cek Low-High")
+
+
+def setting_text(value):
+    if value is None or pd.isna(value):
+        return ""
+    text = str(value).strip()
+    return "" if text.lower() in ("nan", "none", "nat") else text
+
+
+def export_ranges(frame):
+    return json.dumps([{key: setting_text(row.get(key, "")) for key in RANGE_FIELDS}
+                       for _, row in frame.iterrows()], ensure_ascii=False, indent=2)
+
+
+def restore_ranges(frame, records):
+    if not isinstance(records, list):
+        raise ValueError("Gunakan file low_high_te.json yang diunduh dari aplikasi")
+    restored = frame.copy()
+    seen = set()
+    for record in records:
+        if not isinstance(record, dict):
+            raise ValueError("Setiap baris pengaturan harus berupa objek")
+        label = setting_text(record.get("Komoditas"))
+        if label not in NAMES or label in seen:
+            raise ValueError(f"Komoditas tidak dikenal atau berulang: {label}")
+        seen.add(label)
+        values = {key: setting_text(record.get(key)) for key in RANGE_FIELDS[1:]}
+        for key in ("Low 1Y", "High 1Y"):
+            if values[key]:
+                try:
+                    number = float(values[key].replace(",", ""))
+                except ValueError:
+                    raise ValueError(f"{label}: {key} harus berupa angka") from None
+                if not math.isfinite(number) or number <= 0:
+                    raise ValueError(f"{label}: {key} harus berupa angka positif")
+                values[key] = str(number)
+        if values["Low 1Y"] and values["High 1Y"] and float(values["Low 1Y"]) >= float(values["High 1Y"]):
+            raise ValueError(f"{label}: Low harus lebih kecil dari High")
+        date_text = values["Tanggal cek Low-High"]
+        if date_text:
+            try:
+                checked = datetime.strptime(date_text, "%Y-%m-%d").date()
+            except ValueError:
+                raise ValueError(f"{label}: gunakan tanggal YYYY-MM-DD") from None
+            if checked > TODAY:
+                raise ValueError(f"{label}: tanggal cek tidak boleh di masa depan")
+            values["Tanggal cek Low-High"] = checked.isoformat()
+        mask = restored["Komoditas"] == label
+        for key, value in values.items():
+            restored.loc[mask, key] = value
+    return restored
+
+
 def compact_dollars(value):
     return re.sub(r"\$\s+(?=\d)", "$", str(value or ""))
 
@@ -524,28 +578,20 @@ with st.expander("✏️ Isi ICP bulanan"):
 
 st.caption("Low–High (1 Year): input manual dari Trading Economics. Harga, perubahan, dan ringkasan dibaca dari halaman publik jika tersedia. ICP masih contoh dan perlu diperbarui manual.")
 with st.expander("💾 Simpan / pulihkan Low–High"):
-    saved = [{k: str(row.get(k, "")) for k in ("Komoditas", "Low 1Y", "High 1Y", "Tanggal cek Low-High")} for _, row in edited.iterrows()]
-    st.download_button("Unduh pengaturan Low–High", json.dumps(saved, ensure_ascii=False, indent=2), "low_high_te.json", "application/json")
+    st.download_button("Unduh pengaturan Low–High", export_ranges(edited), "low_high_te.json", "application/json")
     uploaded = st.file_uploader("Unggah pengaturan yang pernah disimpan", type=["json"])
     if uploaded is not None and st.button("Terapkan pengaturan"):
         try:
-            records = json.load(uploaded)
-            restored = edited.copy()
-            if not isinstance(records, list): raise ValueError("Format pengaturan harus berupa daftar")
-            for record in records:
-                if record["Komoditas"] not in NAMES: raise ValueError("Komoditas tidak dikenal")
-                lo, hi = float(record["Low 1Y"]), float(record["High 1Y"])
-                date = datetime.strptime(record["Tanggal cek Low-High"], "%Y-%m-%d").date()
-                if not (math.isfinite(lo) and math.isfinite(hi) and 0 < lo < hi) or date > TODAY:
-                    raise ValueError("Angka atau tanggal cek tidak valid")
-                mask = restored["Komoditas"] == record["Komoditas"]
-                for field in ("Low 1Y", "High 1Y", "Tanggal cek Low-High"):
-                    restored.loc[mask, field] = record[field]
+            records = json.loads(uploaded.getvalue().decode("utf-8-sig"))
+            restored = restore_ranges(edited, records)
             st.session_state.frame = restored
             st.session_state.editor_revision += 1
+            st.session_state.range_upload_ok = True
             st.rerun()
-        except (ValueError, KeyError, TypeError) as exc:
+        except (ValueError, KeyError, TypeError, UnicodeDecodeError) as exc:
             st.error(f"Pengaturan tidak dapat dipakai: {exc}")
+    if st.session_state.pop("range_upload_ok", False):
+        st.success("Pengaturan berhasil diterapkan. Angka kosong dapat dilengkapi melalui tabel edit.")
 
 st.markdown("### Tampilan laporan")
 st.markdown(preview(edited, icp_period, lalang, pendalian, lalang_note, pendalian_note), unsafe_allow_html=True)
@@ -553,25 +599,10 @@ with st.expander("Sumber dan status pembacaan"):
     st.dataframe(edited[["Komoditas", "Waktu sumber", "Tanggal cek Low-High", "Acuan rentang", "Status", "Link berita"]], hide_index=True, use_container_width=True)
 
 timestamp = datetime.now(ZoneInfo("Asia/Jakarta")).strftime("%Y%m%d")
-invalid = [str(row["Komoditas"]) for _,row in edited.iterrows()
-           if not row["Latest Price"] or not is_fresh(row["Waktu sumber"])
-           or "berbeda" in str(row["Status"]).lower()]
-def range_valid(row):
-    try:
-        lo, hi, price = (float(str(row[k]).replace(",", "")) for k in ("Low 1Y", "High 1Y", "Latest Price"))
-        checked = datetime.strptime(str(row["Tanggal cek Low-High"]), "%Y-%m-%d").date()
-        return all(math.isfinite(v) for v in (lo, hi, price)) and 0 < lo < hi and lo <= price <= hi and checked == TODAY
-    except (ValueError, TypeError, KeyError):
-        return False
-invalid_range = [str(row["Komoditas"]) for _, row in edited.iterrows() if not range_valid(row)]
 missing_year = [str(row["Komoditas"]) for _,row in edited.iterrows() if not row["Year %"]]
 if missing_year:
     st.warning("Year % belum terambil untuk: " + ", ".join(missing_year) + ". Isi setelah mencocokkan halaman detail sumber.")
 
-if invalid:
-    manual_verified = st.checkbox("Saya sudah melengkapi dan memeriksa angka, tanggal harga, serta periode rentang pada sumbernya")
-else:
-    manual_verified = True
-st.download_button("⬇️ Unduh PNG", png(edited, icp_period, lalang, pendalian, lalang_note, pendalian_note) if manual_verified and not invalid_range else b"",
-                   f"komoditas_{timestamp}.png", "image/png", disabled=not manual_verified or bool(invalid_range))
+st.download_button("⬇️ Unduh PNG", png(edited, icp_period, lalang, pendalian, lalang_note, pendalian_note),
+                   f"komoditas_{timestamp}.png", "image/png")
 st.download_button("⬇️ Unduh CSV", edited.to_csv(index=False).encode("utf-8-sig"), f"komoditas_{timestamp}.csv", "text/csv")

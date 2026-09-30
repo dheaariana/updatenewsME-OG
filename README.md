@@ -8,6 +8,7 @@ Untuk Streamlit Community Cloud: unggah app.py dan requirements.txt ke GitHub, p
 3. Isi Tanggal cek Low-High format YYYY-MM-DD, sesuai hari pemeriksaan. Cek ulang tiap laporan harian.
 4. Low–High tidak tertimpa saat klik Ambil dari halaman publik. Grafik hanya ditampilkan jika harga berada dalam rentang valid. Jika harga keluar, periksa ulang rentang; aplikasi tidak mengubah High mengikuti Latest Price.
 5. Unduh pengaturan Low–High sebagai JSON untuk dipakai ulang setelah sesi berakhir. Unggah kembali dan klik Terapkan pengaturan.
-6. Unduh PNG setelah rentang valid dan tanggal cek hari ini terisi untuk semua komoditas. CSV tetap dapat diunduh untuk penyimpanan.
+6. Unduh PNG sesuai tabel yang tampil, tanpa kewajiban tanggal cek hari ini atau kotak konfirmasi. Rentang kosong/invalid tetap ditandai, bukan dibuatkan angka. CSV tetap dapat diunduh untuk penyimpanan.
+7. JSON yang belum lengkap juga dapat diunggah kembali. Setelah memilih file, klik Terapkan pengaturan. File menyimpan Low, High dan tanggal cek; tidak menarik data historis baru dari TE.
 
 Kolom Low–High memakai input manual TE; tidak memakai World Bank. Harga terbaru dan Reason tetap bersumber dari halaman publik. Ini pembaruan sebagian otomatis, bukan akses API historis gratis. ICP merupakan contoh yang perlu diedit.
