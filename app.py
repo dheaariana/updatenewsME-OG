@@ -567,8 +567,6 @@ invalid_range = [str(row["Komoditas"]) for _, row in edited.iterrows() if not ra
 missing_year = [str(row["Komoditas"]) for _,row in edited.iterrows() if not row["Year %"]]
 if missing_year:
     st.warning("Year % belum terambil untuk: " + ", ".join(missing_year) + ". Isi setelah mencocokkan halaman detail sumber.")
-if invalid:
-    st.warning("Harga kosong, tanggal sumber sudah lama, atau harga daftar/detail berbeda: " + ", ".join(invalid))
 
 if invalid:
     manual_verified = st.checkbox("Saya sudah melengkapi dan memeriksa angka, tanggal harga, serta periode rentang pada sumbernya")
