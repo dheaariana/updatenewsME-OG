@@ -7,7 +7,7 @@ Saat halaman dibuka ulang, aplikasi langsung membaca data publik. Klik **🔄 Am
 Harga dan Day/Month/Year dari halaman detail dipakai bersama hanya bila keempatnya lengkap dan tanggal kutipan harga pada bagian Stats dapat dibaca. Jika halaman detail tidak lengkap, angka tabel daftar tetap digunakan dan status memperingatkan pengguna. Jika harga daftar dan detail berbeda pada tanggal yang sama, status meminta pemeriksaan manual sebelum PNG diunduh. Harga pada halaman publik dapat berubah di tengah proses pembacaan beberapa halaman; pemeriksaan ini tidak menjamin kesamaan detik demi detik.
 Tanggal yang ditampilkan untuk harga adalah tanggal kutipan pada Stats, bukan tulisan "last updated" pada halaman. Jika kutipan terakhir lebih lama dari hari ini, status menunjukkan bahwa harga baru belum tersedia; menekan tombol pembaruan tidak dapat membuat sumber menerbitkan harga baru.
 
-Rentang tersebut **bukan** titik Low–High 52 minggu pada grafik harian Trading Economics. Instrumen, metode, dan waktunya dapat berbeda. Judul tabel disederhanakan menjadi "Low–High (1 Year)"; sumber dan metode perhitungan tetap dijelaskan pada keterangan aplikasi. Harga harian memiliki tanggal sumber tersendiri. Jika file gagal dibaca atau 12 bulan tidak lengkap, kolom rentang dikosongkan dan peringatan muncul. Aplikasi tidak menyamarkan angka contoh sebagai pembaruan.
+Rentang tersebut **bukan** titik Low–High 52 minggu pada grafik harian Trading Economics. Instrumen, metode, dan waktunya dapat berbeda. Judul tabel adalah "Rentang Rata-rata Bulanan (12 Bulan)"; sumber dan metode perhitungan tetap dijelaskan pada keterangan aplikasi. Harga harian memiliki tanggal sumber tersendiri. Jika file gagal dibaca atau 12 bulan tidak lengkap, kolom rentang dikosongkan dan peringatan muncul. Aplikasi tidak menyamarkan angka contoh sebagai pembaruan.
 
 ICP Lalang dan Pendalian masih nilai awal dari contoh Agustus 2026. Perbarui angka dan periode setelah publikasi ESDM terbaru. Ringkasan pasar dapat diedit setelah ditinjau; alasan yang diedit manual dipertahankan pada pembacaan berikutnya.
 
@@ -19,4 +19,4 @@ Sumber rentang: https://thedocs.worldbank.org/en/doc/74e8be41ceb20fa0da750cda2f6
 
 Sumber harga harian: https://tradingeconomics.com/commodities
 
-Jika harga harian di luar rentang 12 rata-rata bulanan, skala grafik meluas hingga harga terbaru. Area abu-abu tetap menunjukkan batas rendah–tinggi World Bank; angka batas tidak diubah. Garis biru menunjukkan harga Trading Economics pada skalanya.
+Jika harga harian di luar rentang 12 rata-rata bulanan, skala grafik meluas hingga harga terbaru. Seluruh batang memakai warna seragam tanpa area putih. Dua garis tipis menunjukkan batas rendah–tinggi World Bank; angka batas tidak diubah. Garis biru menunjukkan harga Trading Economics pada skalanya.

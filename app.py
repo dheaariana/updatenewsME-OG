@@ -322,7 +322,7 @@ def preview(frame, period, lalang, pendalian, lalang_note, pendalian_note):
                 pct = lambda value: 100 * (value - axis_low) / (axis_high - axis_low)
                 low_pos, high_pos, price_pos = pct(low), pct(high), pct(price)
                 label_pos = max(13, min(87, price_pos))
-                marker = (f'<span class="range-fill" style="left:{low_pos:.1f}%;width:{high_pos-low_pos:.1f}%"></span>'
+                marker = (f'<span class="range-bound" style="left:{low_pos:.1f}%"></span><span class="range-bound" style="left:{high_pos:.1f}%"></span>'
                           f'<span class="price-marker" style="left:{label_pos:.1f}%">{fmt_price(price,row["Komoditas"])}</span>'
                           f'<span class="marker" style="left:{price_pos:.1f}%"></span>')
                 bounds = (f'<div class="bounds"><span style="left:{low_pos:.1f}%">{fmt_range(low,row["Komoditas"])}</span>'
@@ -370,8 +370,8 @@ def preview(frame, period, lalang, pendalian, lalang_note, pendalian_note):
     .report td.reason{line-height:1.35;font-size:14px;overflow-wrap:anywhere;vertical-align:middle}
     .report td.reason .reason-text{display:block;text-align:justify;text-justify:inter-word;white-space:pre-line}
     .report td.reason .reason-link{display:block;text-align:left;margin-top:6px}
-    .report .rangebar{height:12px;background:#fff;border:1px solid #d8cec7;position:relative;margin:38px 5px 12px}
-    .report .range-fill{position:absolute;top:0;height:100%;background:#f3f0eb}
+    .report .rangebar{height:12px;background:#f3f0eb;border:1px solid #d8cec7;position:relative;margin:38px 5px 12px}
+    .report .range-bound{position:absolute;top:-3px;height:18px;width:1px;background:#a69b92;transform:translateX(-50%)}
     .report .price-marker{position:absolute;top:-30px;transform:translateX(-50%);font-size:14px;font-weight:bold;color:#17657a;white-space:nowrap}
     .report .marker{position:absolute;background:#218497;height:25px;width:5px;top:-7px;transform:translateX(-50%)}
     .report .bounds{position:relative;height:20px;margin:0 5px;font-size:12px;color:#53606a}
@@ -382,7 +382,7 @@ def preview(frame, period, lalang, pendalian, lalang_note, pendalian_note):
     </style>"""
     html += '<table class="report"><colgroup><col style="width:14%"><col style="width:15%"><col style="width:6%"><col style="width:6%"><col style="width:6%"><col style="width:29%"><col style="width:24%"></colgroup>'
     html += f'<thead><tr><th colspan="7" class="title">Changes in Commodity Prices<small>Source: tradingeconomics.com · Updated: {datetime.now(ZoneInfo("Asia/Jakarta")):%d/%m/%Y %H:%M} GMT+7</small></th></tr>'
-    html += '<tr class="heading"><th>Komoditas</th><th>Latest Price</th><th colspan="3">%Chg</th><th rowspan="2">Reason</th><th rowspan="2">Low–High (1 Year)</th></tr>'
+    html += '<tr class="heading"><th>Komoditas</th><th>Latest Price</th><th colspan="3">%Chg</th><th rowspan="2">Reason</th><th rowspan="2">Rentang Rata-rata Bulanan (12 Bulan)</th></tr>'
     html += '<tr class="heading"><th></th><th></th><th>Day</th><th>Month</th><th>Year</th></tr></thead>'
     html += '<tbody>'+''.join(lines)+'</tbody>'
     html += f'<tr><th colspan="7" class="green">Indonesian Crude Price (per {escape(period or "periode belum diisi")})<br><small>Source: Kementerian ESDM, updated monthly</small></th></tr>'
@@ -407,7 +407,7 @@ def png(frame, icp_period, lalang, pendalian, lalang_note, pendalian_note):
     txt(900,1037,"Changes in Commodity Prices",19,True,"white","center")
     txt(900,1010,f"Source: tradingeconomics.com · laporan dibuat {datetime.now(ZoneInfo('Asia/Jakarta')):%d/%m/%Y %H:%M} GMT+7",9,False,"white","center")
     rect(30,935,1740,65,"#699ce4")
-    for j,title in enumerate(["Komoditas","Latest Price","Day","Month","Year","Reason","Low–High (1 Year)"]):
+    for j,title in enumerate(["Komoditas","Latest Price","Day","Month","Year","Reason","Rentang Rata-rata Bulanan\n(12 Bulan)"]):
         if j == 5: x0,x1=edges[5],edges[6]
         elif j == 6: x0,x1=edges[6],edges[7]
         else: x0,x1=edges[j],edges[j+1]
@@ -466,8 +466,9 @@ def png(frame, icp_period, lalang, pendalian, lalang_note, pendalian_note):
                 axis_low,axis_high=min(low,price),max(high,price)
                 x_of=lambda value:1207+(value-axis_low)/(axis_high-axis_low)*544
                 low_x,high_x,marker_x=x_of(low),x_of(high),x_of(price)
-                rect(1207,bottom+97,544,13,"#ffffff")
-                ax.add_patch(Rectangle((low_x,bottom+97),high_x-low_x,13,facecolor="#f4f0eb",edgecolor="none"))
+                rect(1207,bottom+97,544,13,"#f4f0eb")
+                for bound_x in (low_x, high_x):
+                    ax.plot([bound_x,bound_x],[bottom+94,bottom+113],color="#a69b92",linewidth=1)
                 txt(low_x,bottom+54,fmt_range(low,row["Komoditas"]),11)
                 txt(high_x,bottom+54,fmt_range(high,row["Komoditas"]),11,align="right")
                 ax.add_patch(Rectangle((marker_x-3,bottom+88),6,34,color="#218497"))
