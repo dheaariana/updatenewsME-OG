@@ -16,6 +16,7 @@ import math
 import requests
 from bs4 import BeautifulSoup
 import streamlit as st
+from report import preview, png, MONTHS
 
 st.set_page_config(page_title="Update Komoditas", layout="wide")
 st.title("Perubahan Harga Komoditas")
@@ -325,196 +326,6 @@ def fmt_range(value, commodity):
         return "—"
 
 
-def preview(frame, period, lalang, pendalian, lalang_note, pendalian_note):
-    """Tampilkan tata letak yang sama dengan keluaran PNG."""
-    def bar(row):
-        try:
-            low, high, price = [float(str(row[k]).replace(",", "")) for k in ("Low 1Y", "High 1Y", "Latest Price")]
-            if not (math.isfinite(low) and math.isfinite(high) and math.isfinite(price) and 0 < low < high):
-                return '<div>Low–High belum valid</div>'
-            if not low <= price <= high:
-                return '<div>Periksa kembali Low–High TE</div>'
-            if high > low:
-                axis_low, axis_high = min(low, price), max(high, price)
-                pct = lambda value: 100 * (value - axis_low) / (axis_high - axis_low)
-                low_pos, high_pos, price_pos = pct(low), pct(high), pct(price)
-                label_pos = max(13, min(87, price_pos))
-                marker = (f'<span class="range-bound" style="left:{low_pos:.1f}%"></span><span class="range-bound" style="left:{high_pos:.1f}%"></span>'
-                          f'<span class="price-marker" style="left:{label_pos:.1f}%">{fmt_price(price,row["Komoditas"])}</span>'
-                          f'<span class="marker" style="left:{price_pos:.1f}%"></span>')
-                bounds = (f'<div class="bounds"><span style="left:{low_pos:.1f}%">{fmt_range(low,row["Komoditas"])}</span>'
-                          f'<span class="high-bound" style="left:{high_pos:.1f}%">{fmt_range(high,row["Komoditas"])}</span></div>')
-            else:
-                marker = ""
-                bounds = ""
-        except (TypeError, ValueError):
-            marker = ""
-            bounds = ""
-        return f'<div class="rangebar">{marker}</div>{bounds}'
-
-    def change(value):
-        try:
-            color = "#ab2020" if float(value) < 0 else "#286a29"
-        except (TypeError, ValueError):
-            color = "#333"
-        return f'<span style="color:{color}">{fmt(value, True)}</span>'
-
-    lines = []
-    for _, row in frame.iterrows():
-        name = escape(str(row["Komoditas"]))
-        link = escape(URL + NAMES[row["Komoditas"]], quote=True)
-        reason = f'<span class="reason-text">{escape(compact_dollars(row["Reason"] or "—"))}</span>'
-        source_link = str(row["Link berita"] or "")
-        if source_link.startswith("https://"):
-            reason += f'<small class="reason-link"><a href="{escape(source_link, quote=True)}" target="_blank" rel="noopener noreferrer">Lihat penjelasan sumber</a></small>'
-        lines.append(
-            f'<tr><td class="name"><a href="{link}" target="_blank">{name}</a></td>'
-            f'<td class="price">{fmt_price(row["Latest Price"], row["Komoditas"])}<small>{escape(str(row["Unit"] or ""))} · {escape(str(row["Waktu sumber"] or "tanggal belum ada"))}</small></td>'
-            f'<td>{change(row["Day %"])}</td><td>{change(row["Month %"])}</td><td>{change(row["Year %"])}</td>'
-            f'<td class="reason">{reason}</td><td class="range">{bar(row)}</td></tr>'
-        )
-    html = """<style>
-    .report {font-family:Arial,sans-serif; color:#181818; border:1px solid #222; width:100%; min-width:1050px; border-collapse:collapse; table-layout:fixed}
-    .report th,.report td {border:1px solid #222;padding:10px 8px;text-align:center;vertical-align:middle}
-    .report .title {background:#3977c9;color:#fff;font-size:21px;padding:8px}
-    .report .title small {display:block;font-size:12px}
-    .report .heading {background:#699ce4;color:white;font-size:15px}
-    .report .green {background:#67a44f;color:white;font-size:18px}
-    .report .lightgreen {background:#a1cf90;color:white}
-    .report tbody tr {height:120px;background:#fffaf7}
-    .report td.name {text-align:left;font-weight:bold}.report td.name a{color:#181818;text-decoration:none}
-    .report td.price {font-weight:bold;font-size:18px}.report td.price small{display:block;font-size:12px;font-weight:normal}
-    .report td.reason{line-height:1.35;font-size:14px;overflow-wrap:anywhere;vertical-align:middle}
-    .report td.reason .reason-text{display:block;text-align:justify;text-justify:inter-word;white-space:pre-line}
-    .report td.reason .reason-link{display:block;text-align:left;margin-top:6px}
-    .report .rangebar{height:12px;background:#f3f0eb;border:1px solid #d8cec7;position:relative;margin:38px 5px 12px}
-    .report .range-bound{position:absolute;top:-3px;height:18px;width:1px;background:#a69b92;transform:translateX(-50%)}
-    .report .price-marker{position:absolute;top:-30px;transform:translateX(-50%);font-size:14px;font-weight:bold;color:#17657a;white-space:nowrap}
-    .report .marker{position:absolute;background:#218497;height:25px;width:5px;top:-7px;transform:translateX(-50%)}
-    .report .bounds{position:relative;height:20px;margin:0 5px;font-size:12px;color:#53606a}
-    .report .bounds span{position:absolute;top:0;transform:translateX(-50%);white-space:nowrap}
-    .report .bounds span:first-child{transform:translateX(0)}
-    .report .bounds span.high-bound{transform:translateX(-100%)}
-    .report .icp td{text-align:left;height:34px;font-weight:bold}.report .icp td+td{text-align:center;font-weight:normal}
-    </style>"""
-    html += '<table class="report"><colgroup><col style="width:14%"><col style="width:15%"><col style="width:6%"><col style="width:6%"><col style="width:6%"><col style="width:29%"><col style="width:24%"></colgroup>'
-    html += f'<thead><tr><th colspan="7" class="title">Changes in Commodity Prices<small>Source: tradingeconomics.com · Updated: {datetime.now(ZoneInfo("Asia/Jakarta")):%d/%m/%Y %H:%M} GMT+7</small></th></tr>'
-    html += '<tr class="heading"><th>Komoditas</th><th>Latest Price</th><th colspan="3">%Chg</th><th rowspan="2">Reason</th><th rowspan="2">Low–High (1 Year)</th></tr>'
-    html += '<tr class="heading"><th></th><th></th><th>Day</th><th>Month</th><th>Year</th></tr></thead>'
-    html += '<tbody>'+''.join(lines)+'</tbody>'
-    html += f'<tr><th colspan="7" class="green">Indonesian Crude Price (per {escape(period or "periode belum diisi")})<br><small>Source: Kementerian ESDM, updated monthly</small></th></tr>'
-    html += '<tr><th class="lightgreen">Crude</th><th colspan="3" class="lightgreen">Price (USD/bbl)</th><th colspan="3" class="lightgreen">Notes</th></tr>'
-    html += f'<tr class="icp"><td>Lalang</td><td colspan="3">{fmt(lalang)}</td><td colspan="3">{escape(lalang_note or "—")}</td></tr>'
-    html += f'<tr class="icp"><td>Pendalian</td><td colspan="3">{fmt(pendalian)}</td><td colspan="3">{escape(pendalian_note or "—")}</td></tr></table>'
-    return html
-
-
-def png(frame, icp_period, lalang, pendalian, lalang_note, pendalian_note):
-    from matplotlib.patches import Rectangle
-    fig, ax = plt.subplots(figsize=(18, 11), dpi=150)
-    ax.set_xlim(0, 1800); ax.set_ylim(0, 1100); ax.axis("off")
-    fig.patch.set_facecolor("white")
-    edges = [30, 270, 505, 585, 665, 745, 1190, 1770]
-    def rect(x, y, w, h, color):
-        ax.add_patch(Rectangle((x,y),w,h,facecolor=color,edgecolor="#202020",linewidth=1))
-    def txt(x,y,s,size=14,bold=False,color="#181818",align="left"):
-        ax.text(x,y,str(s),fontsize=size,fontweight="bold" if bold else "normal",color=color,
-                ha=align,va="center",family="DejaVu Sans")
-    rect(30,1000,1740,58,"#3977c9")
-    txt(900,1037,"Changes in Commodity Prices",19,True,"white","center")
-    txt(900,1010,f"Source: tradingeconomics.com · laporan dibuat {datetime.now(ZoneInfo('Asia/Jakarta')):%d/%m/%Y %H:%M} GMT+7",9,False,"white","center")
-    rect(30,935,1740,65,"#699ce4")
-    for j,title in enumerate(["Komoditas","Latest Price","Day","Month","Year","Reason","Low–High (1 Year)"]):
-        if j == 5: x0,x1=edges[5],edges[6]
-        elif j == 6: x0,x1=edges[6],edges[7]
-        else: x0,x1=edges[j],edges[j+1]
-        txt((x0+x1)/2,968,title,11 if j in (2,3,4) else 14,True,"white","center")
-    for idx,(_,row) in enumerate(frame.iterrows()):
-        top=935-idx*195; bottom=top-195
-        rect(30,bottom,1740,195,"#fffaf7")
-        for x in edges[1:-1]:
-            ax.plot([x,x],[bottom,top],color="#202020",linewidth=1)
-        txt(42,bottom+103,row["Komoditas"],16,True)
-        txt(387,bottom+108,fmt_price(row["Latest Price"],row["Komoditas"]),17,True,align="center")
-        txt(387,bottom+77,row["Unit"] or "",10,align="center")
-        txt(387,bottom+53,row["Waktu sumber"] or "tanggal belum ada",8,align="center")
-        for j,key in enumerate(["Day %","Month %","Year %"]):
-            try: color="#a51d1d" if float(row[key])<0 else "#276c2a"
-            except (TypeError,ValueError): color="#333333"
-            txt((edges[j+2]+edges[j+3])/2,bottom+103,fmt(row[key],True),9,False,color,"center")
-        # Bungkus sesuai lebar teks yang terukur, lalu ratakan tiap baris kecuali baris terakhir.
-        from matplotlib.font_manager import FontProperties
-        font = FontProperties(family="DejaVu Sans", size=9)
-        renderer = fig.canvas.get_renderer()
-        pixels_per_unit = ax.transData.transform((1, 0))[0] - ax.transData.transform((0, 0))[0]
-        width = edges[6] - edges[5] - 26
-        def measure(s):
-            return renderer.get_text_width_height_descent(s, font, ismath=False)[0] / pixels_per_unit
-        words = compact_dollars(row["Reason"] or "—").split()
-        reason_lines, current = [], []
-        for word in words:
-            if current and measure(" ".join(current + [word])) > width:
-                reason_lines.append(current)
-                current = []
-            current.append(word)
-        if current:
-            reason_lines.append(current)
-        if len(reason_lines) > 9:
-            reason_lines = reason_lines[:9]
-            last = reason_lines[-1]
-            while last and measure(" ".join(last) + "…") > width:
-                last.pop()
-            reason_lines[-1] = last + ["…"]
-        reason_clip=Rectangle((edges[5]+10,bottom+12),edges[6]-edges[5]-20,171,transform=ax.transData)
-        start_y = bottom + 97 + (len(reason_lines) - 1) * 9
-        for k,line in enumerate(reason_lines):
-            y = start_y - k * 18
-            gaps = len(line) - 1
-            extra = (width - sum(measure(word) for word in line)) / gaps if gaps and k < len(reason_lines)-1 else measure(" ")
-            x = edges[5] + 13
-            for word in line:
-                label = ax.text(x,y,word,fontsize=9,color="#181818",ha="left",va="center",family="DejaVu Sans")
-                label.set_clip_path(reason_clip)
-                x += measure(word) + extra
-        low,high,price=[row[k] for k in ["Low 1Y","High 1Y","Latest Price"]]
-        try:
-            low,high,price=[float(v) for v in (low,high,price)]
-            if math.isfinite(low) and math.isfinite(high) and math.isfinite(price) and 0 < low < high and low <= price <= high:
-                axis_low,axis_high=min(low,price),max(high,price)
-                x_of=lambda value:1207+(value-axis_low)/(axis_high-axis_low)*544
-                low_x,high_x,marker_x=x_of(low),x_of(high),x_of(price)
-                rect(1207,bottom+97,544,13,"#f4f0eb")
-                for bound_x in (low_x, high_x):
-                    ax.plot([bound_x,bound_x],[bottom+94,bottom+113],color="#a69b92",linewidth=1)
-                txt(low_x,bottom+54,fmt_range(low,row["Komoditas"]),11)
-                txt(high_x,bottom+54,fmt_range(high,row["Komoditas"]),11,align="right")
-                ax.add_patch(Rectangle((marker_x-3,bottom+88),6,34,color="#218497"))
-                label_x=max(1260,min(1700,marker_x))
-                txt(label_x,bottom+146,fmt_price(price,row["Komoditas"]),11,True,"#17657a","center")
-            else:
-                txt(1480,bottom+103,"Periksa Low–High TE",12,align="center")
-        except (TypeError,ValueError):
-            txt(1480,bottom+103,"Low–High belum diisi",12,align="center")
-    rect(30,108,1740,47,"#67a44f")
-    txt(900,132,f"Indonesian Crude Price (per {icp_period or 'periode belum diisi'})",17,True,"white","center")
-    rect(30,75,1740,33,"#a1cf90")
-    txt(160,92,"Crude",12,True,"white","center")
-    txt(700,92,"Price (USD/bbl)",12,True,"white","center")
-    txt(1380,92,"Notes",12,True,"white","center")
-    rect(30,42,1740,33,"#fffaf7")
-    txt(42,59,"Lalang",12,True)
-    txt(700,59,fmt(lalang),12,align="center")
-    txt(1380,59,fill(lalang_note or "—",40).splitlines()[0],10,align="center")
-    rect(30,9,1740,33,"#fffaf7")
-    txt(42,26,"Pendalian",12,True)
-    txt(700,26,fmt(pendalian),12,align="center")
-    txt(1380,26,fill(pendalian_note or "—",40).splitlines()[0],10,align="center")
-    out = BytesIO()
-    fig.savefig(out, format="png", bbox_inches="tight", pad_inches=.2)
-    plt.close(fig)
-    return out.getvalue()
-
-
 first_load = "frame" not in st.session_state
 if first_load:
     st.session_state.frame = pd.DataFrame([{
@@ -568,15 +379,38 @@ with st.expander("✏️ Isi Low–High TE 1 Year, tanggal cek, dan edit laporan
     st.session_state.frame = edited
     st.caption("Isi Low 1Y dan High 1Y dari angka terverifikasi pada seri TE yang sama, periode 1 Year; jangan memakai label sumbu grafik sebagai titik ekstrem. Isi tanggal cek dengan YYYY-MM-DD. Angka manual tetap tersimpan selama sesi meskipun harga diperbarui.")
 
-with st.expander("✏️ Isi ICP bulanan"):
-    icp_period = st.text_input("Periode", value="Agustus 2026")
-    c1, c2 = st.columns(2)
-    lalang = c1.number_input("Lalang (USD/bbl)", min_value=0.0, step=.01, value=93.15)
-    pendalian = c2.number_input("Pendalian (USD/bbl)", min_value=0.0, step=.01, value=90.95)
-    lalang_note = st.text_input("Notes Lalang", value="Ref. untuk debitur a.n ITA")
-    pendalian_note = st.text_input("Notes Pendalian", value="Ref. untuk debitur a.n APG West Kampar")
-
-st.caption("Low–High (1 Year): input manual dari Trading Economics. Harga, perubahan, dan ringkasan dibaca dari halaman publik jika tersedia. ICP masih contoh dan perlu diperbarui manual.")
+if "icp_monthly" not in st.session_state:
+    initial_icp = pd.DataFrame([
+        {"Crude": "Lalang", "Notes": "Ref. untuk debitur a.n ITA", **dict(zip(MONTHS[:8], [67.67,72.43,105.28,121.72,109.84,87.97,85.48,93.15]))},
+        {"Crude": "Pendalian", "Notes": "Ref. untuk debitur a.n APG West Kampar", **dict(zip(MONTHS[:8], [65.47,70.23,103.08,119.52,107.64,85.77,83.28,90.95]))}
+    ])
+    for month in MONTHS[8:]: initial_icp[month] = float("nan")
+    st.session_state.icp_monthly = initial_icp
+with st.expander("✏️ Edit ICP per bulan"):
+    icp_year = st.number_input("Tahun ICP", min_value=2000, max_value=2100, value=2026, step=1)
+    selected_months = st.multiselect("Bulan yang ditampilkan", MONTHS, default=MONTHS[:8])
+    st.caption("Isian awal Januari–Agustus disalin dari gambar Anda, belum diverifikasi ulang terhadap rilis ESDM. Lengkapi bulan berikutnya saat tersedia.")
+    icp_edited = st.data_editor(st.session_state.icp_monthly, hide_index=True, use_container_width=True,
+        disabled=["Crude"], column_config={month: st.column_config.NumberColumn(month, min_value=0.0, format="%.2f") for month in MONTHS}, key="icp_editor")
+    st.session_state.icp_monthly = icp_edited
+    st.download_button("Unduh CSV ICP", icp_edited.to_csv(index=False).encode("utf-8-sig"), "icp_bulanan.csv", "text/csv")
+    icp_upload = st.file_uploader("Pulihkan CSV ICP yang pernah disimpan", type=["csv"], key="icp_upload")
+    if icp_upload is not None and st.button("Terapkan CSV ICP"):
+        try:
+            restored_icp = pd.read_csv(icp_upload).fillna("")
+            if len(restored_icp) != 2 or list(restored_icp["Crude"]) != ["Lalang", "Pendalian"]:
+                raise ValueError("Gunakan CSV ICP yang diunduh dari aplikasi")
+            for month in MONTHS:
+                restored_icp[month] = pd.to_numeric(restored_icp[month], errors="raise").replace("", float("nan"))
+                if (restored_icp[month].dropna() < 0).any(): raise ValueError("Harga ICP harus positif")
+            st.session_state.icp_monthly = restored_icp[["Crude", "Notes"] + MONTHS]
+            del st.session_state["icp_editor"]
+            st.rerun()
+        except (ValueError, KeyError, TypeError) as exc:
+            st.error(f"CSV ICP tidak dapat dipakai: {exc}")
+icp_selected = icp_edited[["Crude", "Notes"] + [m for m in MONTHS if m in selected_months]]
+updated = st.session_state.get("last_refresh", "belum dibaca")
+st.caption("Updated menunjukkan waktu aplikasi membaca halaman; tanggal kutipan tiap harga tetap tertera. Low–High TE diisi manual.")
 with st.expander("💾 Simpan / pulihkan Low–High"):
     st.download_button("Unduh pengaturan Low–High", export_ranges(edited), "low_high_te.json", "application/json")
     uploaded = st.file_uploader("Unggah pengaturan yang pernah disimpan", type=["json"])
@@ -594,7 +428,7 @@ with st.expander("💾 Simpan / pulihkan Low–High"):
         st.success("Pengaturan berhasil diterapkan. Angka kosong dapat dilengkapi melalui tabel edit.")
 
 st.markdown("### Tampilan laporan")
-st.markdown(preview(edited, icp_period, lalang, pendalian, lalang_note, pendalian_note), unsafe_allow_html=True)
+st.markdown(preview(edited, icp_year, icp_selected, updated), unsafe_allow_html=True)
 with st.expander("Sumber dan status pembacaan"):
     st.dataframe(edited[["Komoditas", "Waktu sumber", "Tanggal cek Low-High", "Acuan rentang", "Status", "Link berita"]], hide_index=True, use_container_width=True)
 
@@ -603,6 +437,6 @@ missing_year = [str(row["Komoditas"]) for _,row in edited.iterrows() if not row[
 if missing_year:
     st.warning("Year % belum terambil untuk: " + ", ".join(missing_year) + ". Isi setelah mencocokkan halaman detail sumber.")
 
-st.download_button("⬇️ Unduh PNG", png(edited, icp_period, lalang, pendalian, lalang_note, pendalian_note),
+st.download_button("⬇️ Unduh PNG", png(edited, icp_year, icp_selected, updated),
                    f"komoditas_{timestamp}.png", "image/png")
 st.download_button("⬇️ Unduh CSV", edited.to_csv(index=False).encode("utf-8-sig"), f"komoditas_{timestamp}.csv", "text/csv")
