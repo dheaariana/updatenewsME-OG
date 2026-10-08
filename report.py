@@ -1,6 +1,7 @@
 """Report layout: commodity prices and monthly ICP."""
 import math
 import re
+from datetime import datetime
 from html import escape
 from io import BytesIO
 import matplotlib
@@ -39,11 +40,20 @@ def range_data(row):
     if not lo<=last<=hi: return None,'Periksa Low–High TE'
     return (lo,hi,last,(last-lo)/(hi-lo)),''
 
+def updated_label(value):
+    try:
+        parsed = datetime.strptime(value, "%d/%m/%Y %H:%M GMT+7")
+        return "(Updated: " + parsed.strftime("%d/%m/%y at %H.%M GMT+7") + ")"
+    except (ValueError, TypeError):
+        return "(Updated: " + str(value) + ")"
+
+
 def preview(frame, year, icp, updated):
+    updated = updated_label(updated)
     css='''<style>.commodity-report{overflow-x:auto}.commodity-report table{width:100%;min-width:1200px;border-collapse:collapse;table-layout:fixed;font-family:Arial,sans-serif;color:#171717}.commodity-report th,.commodity-report td{border:1px solid #333;padding:10px 8px}.commodity-report td{background:#fff8f2;vertical-align:middle;text-align:center}.commodity-report .blue{background:#6b9ce4;color:white}.commodity-report .source{background:#3977c9;color:white;font-size:12px}.commodity-report .name{text-align:left;font-weight:bold}.commodity-report .reason{text-align:center;line-height:1.4;overflow-wrap:anywhere;font-size:14px}.commodity-report .green{background:#6aa64b;color:white}.commodity-report .month{background:#97c47d;color:white}.commodity-report .bar{height:12px;border:1px solid #ddd;border-radius:8px;background:#eeede7;position:relative;margin:34px 8px 6px}.commodity-report .marker{position:absolute;top:-4px;height:22px;width:4px;background:#598c7b;transform:translateX(-50%);border-radius:2px}.commodity-report .last{position:absolute;top:-24px;transform:translateX(-50%);color:#598c7b;font-weight:bold;font-size:12px;white-space:nowrap}.commodity-report .bounds{display:flex;justify-content:space-between;font-size:11px;color:#555}.commodity-report .quote{font-size:10px;color:#666;display:block;margin-top:7px}</style>'''
     h=css+'<div class="commodity-report"><table><colgroup>'+''.join(f'<col style="width:{w}%">' for w in [13,14,9,9,9,25,21])+'</colgroup>'
-    h+='<tr><th class="source" colspan="7">(Source: tradingeconomics.com)</th></tr>'
-    h+=f'<tr class="blue"><th rowspan="2">Commodity</th><th>Latest Price</th><th colspan="3">%Chg</th><th rowspan="2">Reason</th><th rowspan="2">Low–High (1 Year)</th></tr><tr class="blue"><th style="font-size:11px">Updated: {escape(updated)}</th><th>Day</th><th>Month</th><th>Year</th></tr>'
+    h+='<tr><th class="source" colspan="7"><div style="font-size:22px;font-weight:bold;margin-bottom:5px">Changes in Commodity Prices</div>(Source: tradingeconomics.com)</th></tr>'
+    h+=f'<tr class="blue"><th rowspan="2">Commodity</th><th>Latest Price</th><th colspan="3">%Chg</th><th rowspan="2">Reason</th><th rowspan="2">Low–High (1 Year)</th></tr><tr class="blue"><th style="font-size:11px">{escape(updated)}</th><th>Day</th><th>Month</th><th>Year</th></tr>'
     for _,r in frame.iterrows():
         h+=f'<tr><td class="name">{escape(r["Komoditas"])}</td><td>{escape(price(r))}<span class="quote">{escape(str(r.get("Waktu sumber","") or ""))}</span></td>'
         for k in ('Day %','Month %','Year %'):
@@ -64,6 +74,7 @@ def preview(frame, year, icp, updated):
     return h+'</table></div>'
 
 def png(frame,year,icp,updated):
+    updated = updated_label(updated)
     widths=[260,280,180,180,180,500,420];edges=[20]
     for w in widths:edges.append(edges[-1]+w)
     width=edges[-1]+20
@@ -94,16 +105,16 @@ def png(frame,year,icp,updated):
         return lines or ['—']
     reasons=[wrap(reason_text(r['Reason']),widths[5]-28) for _,r in frame.iterrows()]
     heights=[max(180,len(lines)*26+26) for lines in reasons]
-    total=35+85+sum(heights)+70+38+2*85+30
+    total=70+85+sum(heights)+70+38+2*85+30
     ax.set_ylim(0,total);fig.set_size_inches(20,max(10,total/110))
     y=total-15
-    box(20,y-35,width-40,35,'#3977c9');txt(width/2,y-17,'(Source: tradingeconomics.com)',10,'white');y-=35
+    box(20,y-70,width-40,70,'#3977c9');txt(width/2,y-25,'Changes in Commodity Prices',19,'white',True);txt(width/2,y-52,'(Source: tradingeconomics.com)',10,'white');y-=70
     for j,title in enumerate(['Commodity','Latest Price','Day','Month','Year','Reason','Low–High (1 Year)']):
         box(edges[j],y-85,widths[j],85,'#6b9ce4')
         if j in (2,3,4):txt((edges[j]+edges[j+1])/2,y-62,title,13,'white',True)
         elif j==1:
             txt((edges[j]+edges[j+1])/2,y-25,title,14,'white',True)
-            for n,line in enumerate(wrap('Updated: '+updated,widths[j]-15,8)):txt((edges[j]+edges[j+1])/2,y-52-n*15,line,8,'white')
+            for n,line in enumerate(wrap(updated,widths[j]-15,8)):txt((edges[j]+edges[j+1])/2,y-52-n*15,line,8,'white')
         else:txt((edges[j]+edges[j+1])/2,y-42,title,14,'white',True)
     box(edges[2],y-40,sum(widths[2:5]),40,'#6b9ce4');txt((edges[2]+edges[5])/2,y-20,'%Chg',14,'white',True);y-=85
     for idx,(_,r) in enumerate(frame.iterrows()):
