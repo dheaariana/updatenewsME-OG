@@ -10,3 +10,6 @@ Harga dan ringkasan diambil dari halaman publik TE jika tersedia. Tidak menjamin
 ICP berbentuk tabel bulanan Lalang/Pendalian. Angka Jan–Aug 2026 disalin dari gambar pengguna, bukan hasil scraping atau verifikasi baru. Sep–Dec kosong. Edit angka, tahun, Notes, dan pilih bulan yang ditampilkan. Unduh CSV ICP untuk simpan, lalu unggah kembali untuk pulihkan.
 
 PNG dan CSV tetap dapat diunduh. Reason tidak ditambahkan asumsi atau angka statis dari gambar. Jika scraping/terjemahan gagal, edit Reason setelah memeriksa sumber. Pengaturan tersimpan selama sesi; gunakan JSON/CSV untuk sesi baru.
+
+
+Perbaikan v30: penjelasan sumber dipecah menjadi permintaan terjemahan maksimal 450 byte UTF-8. Terjemahan yang berhasil disimpan dalam cache. Bila layanan gagal/kuota habis, Reason menampilkan teks asli sumber dalam bahasa Inggris; status terjemahan dapat dilihat pada detail sumber. Klik Ambil dari halaman publik untuk mencoba kembali. Tidak ada penyebab pergerakan harga yang dikarang.

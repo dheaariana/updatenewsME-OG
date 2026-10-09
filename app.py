@@ -197,9 +197,30 @@ def compact_dollars(value):
     return re.sub(r"\$\s+(?=\d)", "$", str(value or ""))
 
 
+def translation_chunks(text, limit=450):
+    """Batas layanan dihitung dalam byte UTF-8, bukan panjang paragraf."""
+    chunks, current = [], ""
+    for word in str(text).split():
+        candidate = (current + " " + word).strip()
+        if len(candidate.encode("utf-8")) <= limit:
+            current = candidate
+            continue
+        if current:
+            chunks.append(current)
+            current = ""
+        # Pecah token panjang juga agar setiap permintaan memenuhi batas.
+        for char in word:
+            if len((current + char).encode("utf-8")) > limit:
+                chunks.append(current)
+                current = ""
+            current += char
+    if current:
+        chunks.append(current)
+    return chunks
+
+
 @st.cache_data(ttl=86400, show_spinner=False)
-def translate_summary(english):
-    """Terjemahkan kutipan ringkas TE; cache teks yang sama agar hemat kuota gratis."""
+def translate_chunk(english):
     response = requests.get(
         "https://api.mymemory.translated.net/get",
         params={"q": english, "langpair": "en|id"}, timeout=15,
@@ -207,9 +228,14 @@ def translate_summary(english):
     response.raise_for_status()
     payload = response.json()
     translated = unescape(str(payload.get("responseData", {}).get("translatedText", ""))).strip()
-    if payload.get("quotaFinished") or payload.get("responseStatus") != 200 or not translated or translated.casefold() == english.casefold():
+    if payload.get("quotaFinished") or str(payload.get("responseStatus")) != "200" or not translated or translated.casefold() == english.casefold():
         raise ValueError("Layanan terjemahan tidak memberikan hasil bahasa Indonesia")
     return compact_dollars(translated)
+
+
+def translate_summary(english):
+    # Kesalahan tidak disimpan dalam cache; klik ambil data akan mencoba lagi.
+    return " ".join(translate_chunk(chunk) for chunk in translation_chunks(english))
 
 
 def collect_public():
@@ -295,7 +321,8 @@ def collect_public():
                 try:
                     data[label]["Reason"] = job.result()
                 except (requests.RequestException, ValueError, KeyError):
-                    data[label]["Reason"] = "Terjemahan belum tersedia. Lihat penjelasan asli pada tautan sumber."
+                    data[label]["Reason"] = compact_dollars(summaries[label])
+                    data[label]["Status"] += "; terjemahan gagal, penjelasan asli ditampilkan"
     for label in NAMES:
         if not data[label]["Reason"]:
             data[label]["Reason"] = "Penjelasan sumber belum berhasil dibaca; periksa halaman komoditas."
