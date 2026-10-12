@@ -66,7 +66,7 @@ def is_fresh(raw):
 
 
 def fetch_html(url):
-    response = requests.get(url, headers=HEADERS, timeout=15)
+    response = requests.get(url, headers={**HEADERS, "Cache-Control": "no-cache", "Pragma": "no-cache"}, timeout=15)
     response.raise_for_status()
     if "captcha" in response.url.lower():
         raise ValueError("Halaman meminta verifikasi browser")
@@ -78,20 +78,23 @@ def clean_num(text):
     return match.group(0).replace(",", "") if match else ""
 
 
+def concise_source(paragraph):
+    """Ringkasan ekstraktif: kalimat sumber, tanpa menciptakan alasan baru."""
+    sentences = re.split(r"(?<=[.!?])\s+(?=[A-Z])", paragraph.strip())
+    sentences = [x for x in sentences if x.strip()]
+    causal = re.compile(r"\b(as|amid|because|due to|driven|weigh|supply|demand|inventor|stock|shipment|production|weather|export|import|geopolit|outage|sanction|consumption|forecast|war|conflict)\w*\b", re.I)
+    selected = [x for x in sentences if causal.search(x)][:2]
+    if not selected:
+        selected = sentences[:2]
+    return " ".join(selected)
+
+
 def detail_fields(text, label):
     """Ambil Yearly dan ringkasan beratribusi dari halaman detail publik."""
     yearly = re.search(r"\bYearly\s+([+-]?\d+(?:\.\d+)?)%", text, re.I)
     summary = re.search(rf"{re.escape(LABELS[label])}\s*-\s*Summary\s+(.+?)\s+{re.escape(LABELS[label])}\s*-\s*Stats", text, re.I | re.S)
     paragraph = re.sub(r"\s+", " ", summary.group(1)).strip() if summary else ""
-    # Potong pada akhir kalimat agar tidak ada fragmen yang tampak sebagai kesimpulan.
-    if len(paragraph) > 330:
-        sentences = re.split(r"(?<=[.!?])\s+", paragraph)
-        paragraph = ""
-        for sentence in sentences:
-            if len(paragraph) + len(sentence) > 330:
-                break
-            paragraph += (" " if paragraph else "") + sentence
-    return (yearly.group(1) if yearly else "", paragraph)
+    return (yearly.group(1) if yearly else "", concise_source(paragraph))
 
 
 def detail_market_fields(soup):
@@ -315,14 +318,14 @@ def collect_public():
             # Angka dari halaman daftar tetap ditampilkan bila halaman detail gagal.
             pass
     if summaries:
-        with ThreadPoolExecutor(max_workers=4) as pool:
+        with ThreadPoolExecutor(max_workers=1) as pool:
             jobs = {label: pool.submit(translate_summary, summary) for label, summary in summaries.items()}
             for label, job in jobs.items():
                 try:
                     data[label]["Reason"] = job.result()
                 except (requests.RequestException, ValueError, KeyError):
-                    data[label]["Reason"] = compact_dollars(summaries[label])
-                    data[label]["Status"] += "; terjemahan gagal, penjelasan asli ditampilkan"
+                    data[label]["Reason"] = "Terjemahan ringkasan sumber belum berhasil. Klik ambil data untuk mencoba kembali."
+                    data[label]["Status"] += "; terjemahan gagal; lihat ringkasan asli melalui Link berita"
     for label in NAMES:
         if not data[label]["Reason"]:
             data[label]["Reason"] = "Penjelasan sumber belum berhasil dibaca; periksa halaman komoditas."
@@ -377,11 +380,6 @@ if first_load or refresh_clicked:
             label = record["Komoditas"]
             for field in ("Low 1Y", "High 1Y", "Acuan rentang", "Tanggal cek Low-High"):
                 new.at[i, field] = old.at[label, field]
-            old_reason = str(old.at[label, "Reason"] or "")
-            auto_prefixes = ("Konteks pasar TE:", "Ringkasan TE (terjemahan otomatis):", "Terjemahan belum tersedia.", "Contoh 28/09/2026:")
-            if old_reason and old_reason != st.session_state.auto_reason.get(label) and not old_reason.startswith(auto_prefixes):
-                new.at[i, "Reason"] = old.at[label, "Reason"]
-                new.at[i, "Link berita"] = old.at[label, "Link berita"]
             # Jangan tampilkan harga lama seolah hasil pembacaan baru.
         st.session_state.frame = new
         st.session_state.auto_reason = generated_reason

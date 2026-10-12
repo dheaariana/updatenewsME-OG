@@ -13,3 +13,6 @@ PNG dan CSV tetap dapat diunduh. Reason tidak ditambahkan asumsi atau angka stat
 
 
 Perbaikan v30: penjelasan sumber dipecah menjadi permintaan terjemahan maksimal 450 byte UTF-8. Terjemahan yang berhasil disimpan dalam cache. Bila layanan gagal/kuota habis, Reason menampilkan teks asli sumber dalam bahasa Inggris; status terjemahan dapat dilihat pada detail sumber. Klik Ambil dari halaman publik untuk mencoba kembali. Tidak ada penyebab pergerakan harga yang dikarang.
+
+
+V31: setiap klik Ambil dari halaman publik membaca ulang Summary halaman detail TE dan mengganti Reason, termasuk teks yang sebelumnya diedit manual. Pilihan maksimal dua kalimat dengan faktor pasar diambil dari sumber lalu diterjemahkan ke bahasa Indonesia. Harga dan narasi TE dapat mempunyai waktu pembaruan berbeda; aplikasi tidak menyimpulkan alasan baru dari persentase harga. Jika terjemahan gagal, tampilkan status singkat bahasa Indonesia dan tautan asli, bukan alasan buatan. Low–High manual tetap dipertahankan.
