@@ -55,7 +55,7 @@ def preview(frame, year, icp, updated):
     h+='<tr><th class="source" colspan="7"><div style="font-size:22px;font-weight:bold;margin-bottom:5px;text-align:center">Changes in Commodity Prices</div>(Source: tradingeconomics.com)</th></tr>'
     h+=f'<tr class="blue"><th rowspan="2">Commodity</th><th>Latest Price</th><th colspan="3">%Chg</th><th rowspan="2">Reason</th><th rowspan="2">Low–High (1 Year)</th></tr><tr class="blue"><th style="font-size:11px">{escape(updated)}</th><th>Day</th><th>Month</th><th>Year</th></tr>'
     for _,r in frame.iterrows():
-        h+=f'<tr><td class="name">{escape(r["Komoditas"])}</td><td>{escape(price(r))}<span class="quote">{escape(str(r.get("Waktu sumber","") or ""))}</span></td>'
+        h+=f'<tr><td class="name">{escape(r["Komoditas"])}</td><td>{escape(price(r))}</td>'
         for k in ('Day %','Month %','Year %'):
             v=number(r[k]); color='#a52222' if v is not None and v<0 else '#428227'
             h+=f'<td style="color:{color}">{fmt(v)+"%" if v is not None else "—"}</td>'
@@ -120,8 +120,7 @@ def png(frame,year,icp,updated):
     for idx,(_,r) in enumerate(frame.iterrows()):
         h=heights[idx];bottom=y-h;mid=(y+bottom)/2
         for j in range(7):box(edges[j],bottom,widths[j],h,'#fff8f2')
-        txt(edges[0]+10,mid,r['Komoditas'],14,bold=True,ha='left');txt((edges[1]+edges[2])/2,mid+8,price(r),13)
-        txt((edges[1]+edges[2])/2,mid-19,r.get('Waktu sumber',''),8,'#666')
+        txt(edges[0]+10,mid,r['Komoditas'],14,bold=True,ha='left');txt((edges[1]+edges[2])/2,mid,price(r),13)
         for j,k in enumerate(('Day %','Month %','Year %'),2):
             v=number(r[k]);txt((edges[j]+edges[j+1])/2,mid,fmt(v)+'%' if v is not None else '—',13,'#a52222' if v is not None and v<0 else '#428227')
         for n,line in enumerate(reasons[idx]):txt((edges[5]+edges[6])/2,mid+(len(reasons[idx])-1)*13-n*26,line,12)
