@@ -16,3 +16,6 @@ Perbaikan v30: penjelasan sumber dipecah menjadi permintaan terjemahan maksimal 
 
 
 V31: setiap klik Ambil dari halaman publik membaca ulang Summary halaman detail TE dan mengganti Reason, termasuk teks yang sebelumnya diedit manual. Pilihan maksimal dua kalimat dengan faktor pasar diambil dari sumber lalu diterjemahkan ke bahasa Indonesia. Harga dan narasi TE dapat mempunyai waktu pembaruan berbeda; aplikasi tidak menyimpulkan alasan baru dari persentase harga. Jika terjemahan gagal, tampilkan status singkat bahasa Indonesia dan tautan asli, bukan alasan buatan. Low–High manual tetap dipertahankan.
+
+
+V33: bulan ICP dengan setidaknya satu harga positif otomatis tampil di laporan/PNG. Upload CSV menggunakan buffer baru dan revisi widget sehingga tabel hasil pemulihan tidak ditimpa editor lama. Setelah mengedit, tekan Enter. Unduh CSV untuk menyimpan isian lintas sesi.

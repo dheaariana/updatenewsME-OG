@@ -411,29 +411,40 @@ if "icp_monthly" not in st.session_state:
     ])
     for month in MONTHS[8:]: initial_icp[month] = float("nan")
     st.session_state.icp_monthly = initial_icp
+def filled_icp_months(frame):
+    return [month for month in MONTHS
+            if (pd.to_numeric(frame[month], errors="coerce") > 0).any()]
+
+
+if "icp_revision" not in st.session_state:
+    st.session_state.icp_revision = 0
 with st.expander("✏️ Edit ICP per bulan"):
     icp_year = st.number_input("Tahun ICP", min_value=2000, max_value=2100, value=2026, step=1)
-    selected_months = st.multiselect("Bulan yang ditampilkan", MONTHS, default=MONTHS[:8])
+    st.caption("Bulan yang sudah diisi harga akan otomatis muncul di laporan dan PNG. Selesaikan isian dengan Enter atau klik di luar sel.")
     st.caption("Isian awal Januari–Agustus disalin dari gambar Anda, belum diverifikasi ulang terhadap rilis ESDM. Lengkapi bulan berikutnya saat tersedia.")
     icp_edited = st.data_editor(st.session_state.icp_monthly, hide_index=True, use_container_width=True,
-        disabled=["Crude"], column_config={month: st.column_config.NumberColumn(month, min_value=0.0, format="%.2f") for month in MONTHS}, key="icp_editor")
+        disabled=["Crude"], column_config={month: st.column_config.NumberColumn(month, min_value=0.0, format="%.2f") for month in MONTHS}, key=f"icp_editor_{st.session_state.icp_revision}")
     st.session_state.icp_monthly = icp_edited
     st.download_button("Unduh CSV ICP", icp_edited.to_csv(index=False).encode("utf-8-sig"), "icp_bulanan.csv", "text/csv")
     icp_upload = st.file_uploader("Pulihkan CSV ICP yang pernah disimpan", type=["csv"], key="icp_upload")
     if icp_upload is not None and st.button("Terapkan CSV ICP"):
         try:
-            restored_icp = pd.read_csv(icp_upload).fillna("")
+            restored_icp = pd.read_csv(BytesIO(icp_upload.getvalue())).fillna("")
             if len(restored_icp) != 2 or list(restored_icp["Crude"]) != ["Lalang", "Pendalian"]:
                 raise ValueError("Gunakan CSV ICP yang diunduh dari aplikasi")
             for month in MONTHS:
                 restored_icp[month] = pd.to_numeric(restored_icp[month], errors="raise").replace("", float("nan"))
                 if (restored_icp[month].dropna() < 0).any(): raise ValueError("Harga ICP harus positif")
             st.session_state.icp_monthly = restored_icp[["Crude", "Notes"] + MONTHS]
-            del st.session_state["icp_editor"]
+            st.session_state.icp_revision += 1
+            st.session_state.icp_upload_ok = True
             st.rerun()
         except (ValueError, KeyError, TypeError) as exc:
             st.error(f"CSV ICP tidak dapat dipakai: {exc}")
-icp_selected = icp_edited[["Crude", "Notes"] + [m for m in MONTHS if m in selected_months]]
+    if st.session_state.pop("icp_upload_ok", False):
+        st.success("CSV ICP berhasil diterapkan. Bulan yang terisi ditampilkan otomatis.")
+selected_months = filled_icp_months(st.session_state.icp_monthly)
+icp_selected = st.session_state.icp_monthly[["Crude", "Notes"] + selected_months]
 updated = st.session_state.get("last_refresh", "belum dibaca")
 st.caption("Updated menunjukkan waktu aplikasi membaca halaman; tanggal kutipan tiap harga tetap tertera. Low–High TE diisi manual.")
 with st.expander("💾 Simpan / pulihkan Low–High"):
