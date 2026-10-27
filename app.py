@@ -16,6 +16,10 @@ import math
 import requests
 from bs4 import BeautifulSoup
 import streamlit as st
+import report
+if getattr(report, "REPORT_VERSION", 0) != 35:
+    st.error("File report.py belum sesuai. Ganti app.py dan report.py dengan file dari ZIP versi 35, lalu jalankan ulang aplikasi.")
+    st.stop()
 from report import preview, png, MONTHS
 
 st.set_page_config(page_title="Update Komoditas", layout="wide")

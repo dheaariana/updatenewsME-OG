@@ -12,6 +12,8 @@ from matplotlib.font_manager import FontProperties
 
 MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']
 
+REPORT_VERSION = 35
+
 def number(value):
     try:
         v=float(str(value).replace(',',''))
@@ -74,7 +76,8 @@ def preview(frame, year, icp, updated):
             lo,hi,last,pos=data; label=min(86,max(14,pos*100))
             cell=f'<div class="bar"><span class="last" style="left:{label}%">{fmt(last,0 if r["Komoditas"]=="Nikel" else 2)}</span><span class="marker" style="left:{pos*100}%"></span></div><div class="bounds"><span>{fmt(lo,0 if r["Komoditas"]=="Nikel" else 2)}</span><span>{fmt(hi,0 if r["Komoditas"]=="Nikel" else 2)}</span></div>'
             cell += f'<div class="bounds"><span>{escape(endpoint_date(r.get("Tanggal Low", "")))}</span><span>{escape(endpoint_date(r.get("Tanggal High", "")))}</span></div>'
-        else: cell=escape(msg)
+        else:
+            cell = f'<div>{escape(msg)}</div><div class="bounds" style="margin-top:12px"><span>{escape(endpoint_date(r.get("Tanggal Low", "")))}</span><span>{escape(endpoint_date(r.get("Tanggal High", "")))}</span></div>' 
         h+=f'<td>{cell}</td></tr>'
     h+='</table><table><colgroup><col style="width:13%">'+''.join('<col>' for _ in icp.columns[2:])+'</colgroup>'
     total=len(icp.columns)-1
@@ -142,7 +145,9 @@ def png(frame,year,icp,updated):
             txt(min(x+w-45,max(x+45,mark)),mid+24,fmt(last,dec),10,'#598c7b',True)
             txt(x,mid-23,fmt(lo,dec),9,'#666',ha='left');txt(x+w,mid-23,fmt(hi,dec),9,'#666',ha='right')
             txt(x,mid-42,endpoint_date(r.get('Tanggal Low','')),9,'#596f89',ha='left');txt(x+w,mid-42,endpoint_date(r.get('Tanggal High','')),9,'#596f89',ha='right')
-        else:txt(x+w/2,mid,msg,11,'#666')
+        else:
+            txt(x+w/2,mid+12,msg,11,'#666')
+            txt(x,mid-20,endpoint_date(r.get('Tanggal Low','')),9,'#596f89',ha='left');txt(x+w,mid-20,endpoint_date(r.get('Tanggal High','')),9,'#596f89',ha='right')
         y=bottom
     box(20,y-70,width-40,70,'#6aa64b');txt(width/2,y-25,f'Indonesian Crude Price {year} (USD/bbl)',16,'white',True);txt(width/2,y-52,'(Source: Kementerian ESDM, Updated: Monthly)',10,'white');y-=70
     months=list(icp.columns[2:]);first=widths[0];cell=(width-40-first)/max(1,len(months))

@@ -22,3 +22,6 @@ V33: bulan ICP dengan setidaknya satu harga positif otomatis tampil di laporan/P
 
 
 V34: isi Tanggal Low dan Tanggal High manual sebagai YYYY-MM-DD pada editor. Keduanya ditampilkan di bawah nilai Low dan High pada laporan dan PNG; disimpan dalam JSON Low–High. JSON lama tetap dapat diunggah. Tanggal tidak otomatis didapat dari Trading Economics, cek sebelum digunakan.
+
+
+V35: pastikan app.py dan report.py versi 35 diunggah bersama. Tanggal tetap terlihat jika grafik tidak dapat ditampilkan karena harga di luar batas. Harga dan tanggal Low–High tetap perlu dicocokkan dengan sumber.
