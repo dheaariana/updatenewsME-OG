@@ -25,3 +25,6 @@ V34: isi Tanggal Low dan Tanggal High manual sebagai YYYY-MM-DD pada editor. Ked
 
 
 V35: pastikan app.py dan report.py versi 35 diunggah bersama. Tanggal tetap terlihat jika grafik tidak dapat ditampilkan karena harga di luar batas. Harga dan tanggal Low–High tetap perlu dicocokkan dengan sumber.
+
+
+V36: hasil terjemahan kosong, null, atau teks None tidak lagi diterima dan tidak disimpan sebagai terjemahan yang berhasil. Klik ambil data untuk mencoba lagi. Jika layanan gratis gagal, aplikasi menampilkan pesan bahasa Indonesia dan tautan sumber di status.

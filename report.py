@@ -12,7 +12,7 @@ from matplotlib.font_manager import FontProperties
 
 MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']
 
-REPORT_VERSION = 35
+REPORT_VERSION = 36
 
 def number(value):
     try:

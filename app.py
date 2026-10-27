@@ -17,8 +17,8 @@ import requests
 from bs4 import BeautifulSoup
 import streamlit as st
 import report
-if getattr(report, "REPORT_VERSION", 0) != 35:
-    st.error("File report.py belum sesuai. Ganti app.py dan report.py dengan file dari ZIP versi 35, lalu jalankan ulang aplikasi.")
+if getattr(report, "REPORT_VERSION", 0) != 36:
+    st.error("File report.py belum sesuai. Ganti app.py dan report.py dengan file dari ZIP versi 36, lalu jalankan ulang aplikasi.")
     st.stop()
 from report import preview, png, MONTHS
 
@@ -228,22 +228,26 @@ def translation_chunks(text, limit=450):
 
 
 @st.cache_data(ttl=86400, show_spinner=False)
-def translate_chunk(english):
+def translate_chunk_v36(english):
     response = requests.get(
         "https://api.mymemory.translated.net/get",
         params={"q": english, "langpair": "en|id"}, timeout=15,
     )
     response.raise_for_status()
     payload = response.json()
-    translated = unescape(str(payload.get("responseData", {}).get("translatedText", ""))).strip()
-    if payload.get("quotaFinished") or str(payload.get("responseStatus")) != "200" or not translated or translated.casefold() == english.casefold():
+    response_data = payload.get("responseData")
+    raw_translation = response_data.get("translatedText") if isinstance(response_data, dict) else None
+    if not isinstance(raw_translation, str):
+        raise ValueError("Layanan terjemahan tidak memberikan hasil")
+    translated = unescape(raw_translation).strip()
+    if payload.get("quotaFinished") or str(payload.get("responseStatus")) != "200" or translated.casefold() in ("", "none", "null", "nan", "undefined") or translated.casefold() == english.casefold():
         raise ValueError("Layanan terjemahan tidak memberikan hasil bahasa Indonesia")
     return compact_dollars(translated)
 
 
 def translate_summary(english):
     # Kesalahan tidak disimpan dalam cache; klik ambil data akan mencoba lagi.
-    return " ".join(translate_chunk(chunk) for chunk in translation_chunks(english))
+    return " ".join(translate_chunk_v36(chunk) for chunk in translation_chunks(english))
 
 
 def collect_public():
