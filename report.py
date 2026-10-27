@@ -40,6 +40,15 @@ def range_data(row):
     if not lo<=last<=hi: return None,'Periksa Low–High TE'
     return (lo,hi,last,(last-lo)/(hi-lo)),''
 
+def endpoint_date(value):
+    """Tampilkan hanya tanggal yang valid; data sumber tetap perlu diverifikasi."""
+    try:
+        date = datetime.strptime(str(value).strip(), "%Y-%m-%d")
+        return f"{date.day} {['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][date.month-1]} {date.year}"
+    except (ValueError, TypeError):
+        return ""
+
+
 def updated_label(value):
     try:
         parsed = datetime.strptime(value, "%d/%m/%Y %H:%M GMT+7")
@@ -64,6 +73,7 @@ def preview(frame, year, icp, updated):
         if data:
             lo,hi,last,pos=data; label=min(86,max(14,pos*100))
             cell=f'<div class="bar"><span class="last" style="left:{label}%">{fmt(last,0 if r["Komoditas"]=="Nikel" else 2)}</span><span class="marker" style="left:{pos*100}%"></span></div><div class="bounds"><span>{fmt(lo,0 if r["Komoditas"]=="Nikel" else 2)}</span><span>{fmt(hi,0 if r["Komoditas"]=="Nikel" else 2)}</span></div>'
+            cell += f'<div class="bounds"><span>{escape(endpoint_date(r.get("Tanggal Low", "")))}</span><span>{escape(endpoint_date(r.get("Tanggal High", "")))}</span></div>'
         else: cell=escape(msg)
         h+=f'<td>{cell}</td></tr>'
     h+='</table><table><colgroup><col style="width:13%">'+''.join('<col>' for _ in icp.columns[2:])+'</colgroup>'
@@ -131,6 +141,7 @@ def png(frame,year,icp,updated):
             mark=x+pos*w;ax.plot([mark,mark],[mid-10,mid+10],color='#598c7b',linewidth=3,solid_capstyle='round')
             txt(min(x+w-45,max(x+45,mark)),mid+24,fmt(last,dec),10,'#598c7b',True)
             txt(x,mid-23,fmt(lo,dec),9,'#666',ha='left');txt(x+w,mid-23,fmt(hi,dec),9,'#666',ha='right')
+            txt(x,mid-42,endpoint_date(r.get('Tanggal Low','')),9,'#596f89',ha='left');txt(x+w,mid-42,endpoint_date(r.get('Tanggal High','')),9,'#596f89',ha='right')
         else:txt(x+w/2,mid,msg,11,'#666')
         y=bottom
     box(20,y-70,width-40,70,'#6aa64b');txt(width/2,y-25,f'Indonesian Crude Price {year} (USD/bbl)',16,'white',True);txt(width/2,y-52,'(Source: Kementerian ESDM, Updated: Monthly)',10,'white');y-=70

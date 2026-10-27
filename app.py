@@ -32,7 +32,7 @@ NAMES = {
 LABELS = {"Nikel": "nickel", "Brent Oil": "brent oil", "Coal": "coal", "Natural Gas": "natural gas"}
 HEADERS = {"User-Agent": "Mozilla/5.0 (compatible; personal commodity report)"}
 COLS = ["Komoditas", "Latest Price", "Unit", "Day %", "Month %", "Year %",
-        "Low 1Y", "High 1Y", "Reason", "Link berita", "Waktu sumber", "Acuan rentang", "Tanggal cek Low-High", "Status"]
+        "Low 1Y", "High 1Y", "Tanggal Low", "Tanggal High", "Reason", "Link berita", "Waktu sumber", "Acuan rentang", "Tanggal cek Low-High", "Status"]
 TODAY = datetime.now(ZoneInfo("Asia/Jakarta")).date()
 
 
@@ -142,7 +142,7 @@ def detail_update_date(text, label):
         return None
 
 
-RANGE_FIELDS = ("Komoditas", "Low 1Y", "High 1Y", "Tanggal cek Low-High")
+RANGE_FIELDS = ("Komoditas", "Low 1Y", "High 1Y", "Tanggal Low", "Tanggal High", "Tanggal cek Low-High")
 
 
 def setting_text(value):
@@ -181,15 +181,16 @@ def restore_ranges(frame, records):
                 values[key] = str(number)
         if values["Low 1Y"] and values["High 1Y"] and float(values["Low 1Y"]) >= float(values["High 1Y"]):
             raise ValueError(f"{label}: Low harus lebih kecil dari High")
-        date_text = values["Tanggal cek Low-High"]
-        if date_text:
-            try:
-                checked = datetime.strptime(date_text, "%Y-%m-%d").date()
-            except ValueError:
-                raise ValueError(f"{label}: gunakan tanggal YYYY-MM-DD") from None
-            if checked > TODAY:
-                raise ValueError(f"{label}: tanggal cek tidak boleh di masa depan")
-            values["Tanggal cek Low-High"] = checked.isoformat()
+        for date_field in ("Tanggal Low", "Tanggal High", "Tanggal cek Low-High"):
+            date_text = values[date_field]
+            if date_text:
+                try:
+                    checked = datetime.strptime(date_text, "%Y-%m-%d").date()
+                except ValueError:
+                    raise ValueError(f"{label}: {date_field} gunakan YYYY-MM-DD") from None
+                if checked > TODAY:
+                    raise ValueError(f"{label}: {date_field} tidak boleh di masa depan")
+                values[date_field] = checked.isoformat()
         mask = restored["Komoditas"] == label
         for key, value in values.items():
             restored.loc[mask, key] = value
@@ -360,11 +361,14 @@ first_load = "frame" not in st.session_state
 if first_load:
     st.session_state.frame = pd.DataFrame([{
         "Komoditas": name, "Latest Price": "", "Unit": "", "Day %": "", "Month %": "", "Year %": "",
-        "Low 1Y": "", "High 1Y": "",
+        "Low 1Y": "", "High 1Y": "", "Tanggal Low": "", "Tanggal High": "",
         "Reason": "", "Link berita": "", "Waktu sumber": "", "Acuan rentang": "TE 1 Year · input manual", "Tanggal cek Low-High": "", "Status": "Belum diambil"
     } for name in NAMES], columns=COLS)
     st.session_state.editor_revision = 0
     st.session_state.auto_reason = {}
+for date_field in ("Tanggal Low", "Tanggal High"):
+    if date_field not in st.session_state.frame.columns:
+        st.session_state.frame[date_field] = ""
 if "editor_revision" not in st.session_state:
     st.session_state.editor_revision = 0
 if "auto_reason" not in st.session_state:
@@ -378,7 +382,7 @@ if first_load or refresh_clicked:
         generated_reason = {record["Komoditas"]: record["Reason"] for _, record in new.iterrows()}
         for i, record in new.iterrows():
             label = record["Komoditas"]
-            for field in ("Low 1Y", "High 1Y", "Acuan rentang", "Tanggal cek Low-High"):
+            for field in ("Low 1Y", "High 1Y", "Tanggal Low", "Tanggal High", "Acuan rentang", "Tanggal cek Low-High"):
                 new.at[i, field] = old.at[label, field]
             # Jangan tampilkan harga lama seolah hasil pembacaan baru.
         st.session_state.frame = new
@@ -397,12 +401,14 @@ with st.expander("✏️ Isi Low–High TE 1 Year, tanggal cek, dan edit laporan
         disabled=["Komoditas", "Status", "Acuan rentang"],
         column_config={"Reason": st.column_config.TextColumn("Reason", width="large"),
                        "Link berita": st.column_config.LinkColumn("Link berita"),
+                       "Tanggal Low": st.column_config.TextColumn("Tanggal Low (YYYY-MM-DD)"),
+                       "Tanggal High": st.column_config.TextColumn("Tanggal High (YYYY-MM-DD)"),
                        "Tanggal cek Low-High": st.column_config.TextColumn("Tanggal cek Low-High (YYYY-MM-DD)")},
         key=f"editor_{st.session_state.editor_revision}",
     )
     edited["Reason"] = edited["Reason"].map(compact_dollars)
     st.session_state.frame = edited
-    st.caption("Isi Low 1Y dan High 1Y dari angka terverifikasi pada seri TE yang sama, periode 1 Year; jangan memakai label sumbu grafik sebagai titik ekstrem. Isi tanggal cek dengan YYYY-MM-DD. Angka manual tetap tersimpan selama sesi meskipun harga diperbarui.")
+    st.caption("Isi Low 1Y dan High 1Y dari angka terverifikasi pada seri TE yang sama, periode 1 Year; jangan memakai label sumbu grafik sebagai titik ekstrem. Isi Tanggal Low dan Tanggal High sesuai sumber dengan format YYYY-MM-DD; isi juga tanggal cek. Angka manual tetap tersimpan selama sesi meskipun harga diperbarui.")
 
 if "icp_monthly" not in st.session_state:
     initial_icp = pd.DataFrame([
@@ -446,7 +452,7 @@ with st.expander("✏️ Edit ICP per bulan"):
 selected_months = filled_icp_months(st.session_state.icp_monthly)
 icp_selected = st.session_state.icp_monthly[["Crude", "Notes"] + selected_months]
 updated = st.session_state.get("last_refresh", "belum dibaca")
-st.caption("Updated menunjukkan waktu aplikasi membaca halaman; tanggal kutipan tiap harga tetap tertera. Low–High TE diisi manual.")
+st.caption("Updated menunjukkan waktu aplikasi membaca halaman; Low–High TE diisi manual.")
 with st.expander("💾 Simpan / pulihkan Low–High"):
     st.download_button("Unduh pengaturan Low–High", export_ranges(edited), "low_high_te.json", "application/json")
     uploaded = st.file_uploader("Unggah pengaturan yang pernah disimpan", type=["json"])

@@ -19,3 +19,6 @@ V31: setiap klik Ambil dari halaman publik membaca ulang Summary halaman detail 
 
 
 V33: bulan ICP dengan setidaknya satu harga positif otomatis tampil di laporan/PNG. Upload CSV menggunakan buffer baru dan revisi widget sehingga tabel hasil pemulihan tidak ditimpa editor lama. Setelah mengedit, tekan Enter. Unduh CSV untuk menyimpan isian lintas sesi.
+
+
+V34: isi Tanggal Low dan Tanggal High manual sebagai YYYY-MM-DD pada editor. Keduanya ditampilkan di bawah nilai Low dan High pada laporan dan PNG; disimpan dalam JSON Low–High. JSON lama tetap dapat diunggah. Tanggal tidak otomatis didapat dari Trading Economics, cek sebelum digunakan.
